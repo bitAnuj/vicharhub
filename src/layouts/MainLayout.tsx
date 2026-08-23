@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-
+import VirtualKeyboard from "../components/Virtualkeyboard";
 import Navbar from "../components/navbar/Navbar";
 import CommandPalette from "../components/modals/CommandPalette";
 import Sidebar from "../components/sidebar/Sidebar";
@@ -55,6 +55,8 @@ function MainLayout({ children }: Props) {
           {children}
         </main>
       </div>
+
+      <VirtualKeyboard />
     </div>
   );
 }

@@ -1,10 +1,15 @@
-import { Search, Settings, Menu, Sun, Moon } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
+import { usePageStore } from "../../store/usePageStore";
+import { Search, Settings, Menu, Sun, Moon, Link2, Check } from "lucide-react";
+import { useState } from "react";
 import ActivityDropdown from "./ActivityDropdown";
 
 function Navbar() {
   const { setCommandOpen, setSettingsOpen, setSidebarOpen, theme, toggleTheme } =
     useUIStore();
+  const [copied, setCopied] = useState(false);
+  const { pages, selectedPageId } = usePageStore();
+  const currentPage = pages.find((p) => p.id === selectedPageId);
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-zinc-800 bg-zinc-900/80 px-3 backdrop-blur-sm md:px-6">
@@ -29,7 +34,21 @@ function Navbar() {
             Ctrl K
           </kbd>
         </button>
-
+        {currentPage && (
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(
+                `${window.location.origin}?page=${currentPage.id}`
+              );
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+            title="Copy link to this page"
+          >
+            {copied ? <Check size={18} /> : <Link2 size={18} />}
+          </button>
+        )}
         <button
           onClick={toggleTheme}
           className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
