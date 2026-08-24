@@ -1,26 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-
-let vaultId: string | null = null;
-
-export const setCurrentVaultId = (id: string | null) => {
-  vaultId = id;
-};
-
-const customStorage = {
-  getItem: (name: string) => {
-    const key = vaultId ? `vicharhub-vault-${vaultId}-${name}` : name;
-    return localStorage.getItem(key);
-  },
-  setItem: (name: string, value: string) => {
-    const key = vaultId ? `vicharhub-vault-${vaultId}-${name}` : name;
-    localStorage.setItem(key, value);
-  },
-  removeItem: (name: string) => {
-    const key = vaultId ? `vicharhub-vault-${vaultId}-${name}` : name;
-    localStorage.removeItem(key);
-  },
-};
+import { toast } from "sonner";
+import { api, ApiError } from "../lib/api";
 
 type Page = {
   id: string;
@@ -36,9 +17,44 @@ type Page = {
   updatedAt: Date;
 };
 
+type ServerPage = {
+  id: string;
+  vaultId: string;
+  parentId: string | null;
+  title: string;
+  content: string;
+  icon: string;
+  cover: string;
+  favorite: boolean;
+  trashed: boolean;
+  isExpanded: boolean;
+  orderIndex: number;
+  createdAt: number; // unix seconds
+  updatedAt: number;
+};
+
+function fromServer(p: ServerPage): Page {
+  return {
+    id: p.id,
+    title: p.title,
+    content: p.content,
+    icon: p.icon,
+    cover: p.cover,
+    favorite: p.favorite,
+    trashed: p.trashed,
+    parentId: p.parentId,
+    isExpanded: p.isExpanded,
+    createdAt: new Date(p.createdAt * 1000),
+    updatedAt: new Date(p.updatedAt * 1000),
+  };
+}
+
 type PageStore = {
   pages: Page[];
   selectedPageId: string;
+  // which vault the current cached pages belong to (offline instant-paint)
+  cacheOwner: string | null;
+  cache?: Record<string, { pages: Page[]; selectedPageId: string }> | undefined;
 
   addPage: () => void;
   addChildPage: (parentId: string) => void;
@@ -57,262 +73,257 @@ type PageStore = {
   toggleFavorite: (id: string) => void;
   movePage: (id: string, newParentId: string | null) => void;
   setAllPages: (pages: Page[]) => void;
-  reorderPage: (
-    draggedId: string,
-    targetId: string,
-    position: "before" | "after"
-  ) => void;
+  reorderPage: (draggedId: string, targetId: string, position: "before" | "after") => void;
 
   selectPage: (id: string) => void;
+
+  // ---- used by the vault store (not UI) ----
+  setActiveVaultId: (vaultId: string | null) => void;
+  stashCurrentPages: () => void;
+  loadCachedPages: (vaultId: string) => void;
+  applyServerPages: (vaultId: string, pages: ServerPage[]) => void;
 };
 
-const initialPages: Page[] = [
-  {
-    id: crypto.randomUUID(),
-    title: "Welcome",
-    content: "",
-    icon: "🏠",
-    cover: "",
-    favorite: false,
-    trashed: false,
-    parentId: null,
-    isExpanded: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-];
+// ---------- module-level bridge (set by vault store, avoids import cycles) ----------
+let activeVaultId: string | null = null;
 
+const fail = (e: unknown) => {
+  if (e instanceof ApiError && e.status === 401) return; // global handler logs out
+  console.error(e);
+  toast.error("Sync failed — change kept locally, will retry on next action");
+};
+
+// debounced content saves (typing fires many updates/sec)
+const contentTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+const initialPages: Page[] = [];
 
 export const usePageStore = create<PageStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       pages: initialPages,
+      selectedPageId: "",
+      cacheOwner: null,
 
-      selectedPageId: initialPages[0]?.id ?? "",
-
-      addPage: () =>
-        set((state) => ({
+      addPage: () => {
+        const id = crypto.randomUUID();
+        const now = new Date();
+        const vaultId = activeVaultId;
+        set((s) => ({
           pages: [
-            ...state.pages,
-            {
-              id: crypto.randomUUID(),
-              title: "Untitled",
-              content: "",
-              icon: "📄",
-              cover: "",
-              favorite: false,
-              trashed: false,
-              parentId: null,
-              isExpanded: true,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
+            ...s.pages,
+            { id, title: "Untitled", content: "", icon: "📄", cover: "", favorite: false, trashed: false, parentId: null, isExpanded: true, createdAt: now, updatedAt: now },
           ],
-        })),
+          selectedPageId: s.selectedPageId || id,
+        }));
+        if (vaultId)
+          api("/api/pages", { method: "POST", body: { id, vaultId } }).catch(fail);
+      },
 
-      addChildPage: (parentId: string) =>
-        set((state) => ({
-          pages: [
-            ...state.pages,
-            {
-              id: crypto.randomUUID(),
-              title: "Untitled",
-              content: "",
-              icon: "📄",
-              cover: "",
-              favorite: false,
-              trashed: false,
-              parentId,
-              isExpanded: true,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          ],
-        })),
+      addChildPage: (parentId) => {
+        const id = crypto.randomUUID();
+        const now = new Date();
+        const vaultId = activeVaultId;
+        set((s) => ({
+          pages: [...s.pages, { id, title: "Untitled", content: "", icon: "📄", cover: "", favorite: false, trashed: false, parentId, isExpanded: true, createdAt: now, updatedAt: now }],
+        }));
+        if (vaultId)
+          api("/api/pages", { method: "POST", body: { id, vaultId, parentId } }).catch(fail);
+      },
 
-      duplicatePage: (id: string) =>
-        set((state) => {
-          const page = state.pages.find((p) => p.id === id);
-          if (!page) return state;
+      duplicatePage: (id) => {
+        const source = get().pages.find((p) => p.id === id);
+        if (!source) return;
+        const vaultId = activeVaultId;
+        if (!vaultId) return;
+        api<{ page: ServerPage }>(`/api/pages/${id}/duplicate`, { method: "POST", body: {} })
+          .then(({ page }) => {
+            if (page) set((s) => ({ pages: [...s.pages, fromServer(page)] }));
+          })
+          .catch(fail);
+      },
 
-          const copy = {
-            ...page,
-            id: crypto.randomUUID(),
-            title: `${page.title} Copy`,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
+      deletePage: (id) => {
+        const idsToTrash = new Set<string>();
+        const collect = (targetId: string) => {
+          idsToTrash.add(targetId);
+          get().pages.filter((p) => p.parentId === targetId).forEach((c) => collect(c.id));
+        };
+        collect(id);
+        set((s) => ({
+          pages: s.pages.map((p) => (idsToTrash.has(p.id) ? { ...p, trashed: true, updatedAt: new Date() } : p)),
+          selectedPageId: idsToTrash.has(s.selectedPageId)
+            ? s.pages.filter((p) => !p.trashed && !idsToTrash.has(p.id))[0]?.id ?? ""
+            : s.selectedPageId,
+        }));
+        api(`/api/pages/${id}`, { method: "DELETE" }).catch(fail);
+      },
 
-          return {
-            pages: [...state.pages, copy],
-          };
-        }),
+      restorePage: (id) => {
+        const ids = new Set<string>();
+        const collect = (targetId: string) => {
+          ids.add(targetId);
+          get().pages.filter((p) => p.parentId === targetId).forEach((c) => collect(c.id));
+        };
+        collect(id);
+        set((s) => ({ pages: s.pages.map((p) => (ids.has(p.id) ? { ...p, trashed: false, updatedAt: new Date() } : p)) }));
+        api(`/api/pages/${id}/restore`, { method: "POST" }).catch(fail);
+      },
 
-      deletePage: (id: string) =>
-        set((state) => {
-          const idsToTrash = new Set<string>();
-          const collect = (targetId: string) => {
-            idsToTrash.add(targetId);
-            state.pages
-              .filter((page) => page.parentId === targetId)
-              .forEach((child) => collect(child.id));
-          };
-          collect(id);
+      permanentlyDeletePage: (id) => {
+        const ids = new Set<string>();
+        const collect = (targetId: string) => {
+          ids.add(targetId);
+          get().pages.filter((p) => p.parentId === targetId).forEach((c) => collect(c.id));
+        };
+        collect(id);
+        set((s) => ({ pages: s.pages.filter((p) => !ids.has(p.id)) }));
+        api(`/api/pages/${id}?permanent=true`, { method: "DELETE" }).catch(fail);
+      },
 
-          const updatedPages = state.pages.map((page) =>
-            idsToTrash.has(page.id) ? { ...page, trashed: true } : page
-          );
+      renamePage: (id, title) => {
+        set((s) => ({ pages: s.pages.map((p) => (p.id === id ? { ...p, title, updatedAt: new Date() } : p)) }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { title } }).catch(fail);
+      },
 
-          const visiblePages = updatedPages.filter((p) => !p.trashed);
+      updateContent: (id, content) => {
+        set((s) => ({ pages: s.pages.map((p) => (p.id === id ? { ...p, content, updatedAt: new Date() } : p)) }));
+        clearTimeout(contentTimers[id]);
+        contentTimers[id] = setTimeout(() => {
+          api(`/api/pages/${id}`, { method: "PATCH", body: { content } }).catch(fail);
+        }, 600);
+      },
 
-          return {
-            pages: updatedPages,
-            selectedPageId: idsToTrash.has(state.selectedPageId)
-              ? visiblePages[0]?.id ?? ""
-              : state.selectedPageId,
-          };
-        }),
+      updateIcon: (id, icon) => {
+        set((s) => ({ pages: s.pages.map((p) => (p.id === id ? { ...p, icon, updatedAt: new Date() } : p)) }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { icon } }).catch(fail);
+      },
 
-      restorePage: (id) =>
-        set((state) => {
-          const idsToRestore = new Set<string>();
-          const collect = (targetId: string) => {
-            idsToRestore.add(targetId);
-            state.pages
-              .filter((page) => page.parentId === targetId)
-              .forEach((child) => collect(child.id));
-          };
-          collect(id);
+      updateCover: (id, cover) => {
+        set((s) => ({ pages: s.pages.map((p) => (p.id === id ? { ...p, cover, updatedAt: new Date() } : p)) }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { cover } }).catch(fail);
+      },
 
-          return {
-            pages: state.pages.map((page) =>
-              idsToRestore.has(page.id) ? { ...page, trashed: false } : page
-            ),
-          };
-        }),
+      toggleFavorite: (id) => {
+        let next = false;
+        set((s) => ({
+          pages: s.pages.map((p) => {
+            if (p.id !== id) return p;
+            next = !p.favorite;
+            return { ...p, favorite: next, updatedAt: new Date() };
+          }),
+        }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { favorite: next } }).catch(fail);
+      },
 
-      permanentlyDeletePage: (id) =>
-        set((state) => {
-          const idsToDelete = new Set<string>();
-          const collect = (targetId: string) => {
-            idsToDelete.add(targetId);
-            state.pages
-              .filter((page) => page.parentId === targetId)
-              .forEach((child) => collect(child.id));
-          };
-          collect(id);
+      toggleExpanded: (id) => {
+        let next = true;
+        set((s) => ({
+          pages: s.pages.map((p) => {
+            if (p.id !== id) return p;
+            next = !p.isExpanded;
+            return { ...p, isExpanded: next };
+          }),
+        }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { isExpanded: next } }).catch(fail);
+      },
 
-          return {
-            pages: state.pages.filter((page) => !idsToDelete.has(page.id)),
-          };
-        }),
+      movePage: (id, newParentId) => {
+        const isDescendant = (candidateId: string, ancestorId: string): boolean => {
+          const c = get().pages.find((p) => p.id === candidateId);
+          if (!c || c.parentId === null) return false;
+          if (c.parentId === ancestorId) return true;
+          return isDescendant(c.parentId, ancestorId);
+        };
+        if (newParentId === id) return;
+        if (newParentId && isDescendant(newParentId, id)) return;
+        set((s) => ({
+          pages: s.pages.map((p) => (p.id === id ? { ...p, parentId: newParentId, isExpanded: true, updatedAt: new Date() } : p)),
+        }));
+        api(`/api/pages/${id}`, { method: "PATCH", body: { parentId: newParentId } }).catch(fail);
+      },
 
-      renamePage: (id: string, title: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id ? { ...page, title, updatedAt: new Date() } : page
-          ),
-        })),
+      setAllPages: (pages) => {
+        // Settings → Import: apply instantly, then push every page to the server (option a)
+        set({ pages, selectedPageId: pages[0]?.id ?? "" });
+        const vaultId = activeVaultId;
+        if (!vaultId) {
+          toast.error("Import kept locally only — no vault selected");
+          return;
+        }
+        (async () => {
+          let done = 0;
+          for (const p of pages) {
+            try {
+              await api("/api/pages", {
+                method: "POST",
+                body: {
+                  id: p.id, vaultId, parentId: p.parentId, title: p.title, icon: p.icon,
+                  content: p.content, cover: p.cover, favorite: p.favorite,
+                  trashed: p.trashed, isExpanded: p.isExpanded,
+                },
+              });
+              done++;
+            } catch (e) {
+              fail(e);
+            }
+          }
+          toast.success(`Imported ${done}/${pages.length} pages to the cloud`);
+        })();
+      },
 
-      updateContent: (id: string, content: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id ? { ...page, content, updatedAt: new Date() } : page
-          ),
-        })),
+      reorderPage: (draggedId, targetId, position) => {
+        const state = get();
+        const dragged = state.pages.find((p) => p.id === draggedId);
+        const target = state.pages.find((p) => p.id === targetId);
+        if (!dragged || !target || dragged.id === target.id) return;
+        const withoutDragged = state.pages.filter((p) => p.id !== draggedId);
+        const updated = { ...dragged, parentId: target.parentId };
+        const tIdx = withoutDragged.findIndex((p) => p.id === targetId);
+        const insertIndex = position === "before" ? tIdx : tIdx + 1;
+        const newPages = [...withoutDragged];
+        newPages.splice(insertIndex, 0, updated);
+        set({ pages: newPages });
+        api("/api/pages/reorder", { method: "POST", body: { draggedId, targetId, position } }).catch(fail);
+      },
 
-      updateIcon: (id: string, icon: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id ? { ...page, icon, updatedAt: new Date() } : page
-          ),
-        })),
+      selectPage: (id) => set({ selectedPageId: id }),
 
-      updateCover: (id: string, cover: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id ? { ...page, cover, updatedAt: new Date() } : page
-          ),
-        })),
+      // ---- vault-store internals ----
+      setActiveVaultId: (vaultId) => {
+        activeVaultId = vaultId;
+      },
 
-      toggleFavorite: (id: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id
-              ? { ...page, favorite: !page.favorite, updatedAt: new Date() }
-              : page
-          ),
-        })),
+      stashCurrentPages: () => {
+        const owner = get().cacheOwner;
+        if (!owner) return;
+        set((s) => ({
+          cache: { ...(s.cache ?? {}), [owner]: { pages: s.pages, selectedPageId: s.selectedPageId } },
+        }));
+      },
 
-      toggleExpanded: (id: string) =>
-        set((state) => ({
-          pages: state.pages.map((page) =>
-            page.id === id ? { ...page, isExpanded: !page.isExpanded } : page
-          ),
-        })),
+      loadCachedPages: (vaultId) => {
+        const cached = get().cache?.[vaultId];
+        if (cached) set({ pages: cached.pages, selectedPageId: cached.selectedPageId, cacheOwner: vaultId });
+        else set({ pages: [], selectedPageId: "", cacheOwner: vaultId });
+      },
 
-      movePage: (id: string, newParentId: string | null) =>
-        set((state) => {
-          const isDescendant = (
-            candidateId: string,
-            ancestorId: string
-          ): boolean => {
-            const candidate = state.pages.find((p) => p.id === candidateId);
-            if (!candidate || candidate.parentId === null) return false;
-            if (candidate.parentId === ancestorId) return true;
-            return isDescendant(candidate.parentId, ancestorId);
-          };
-
-          if (newParentId === id) return state;
-          if (newParentId && isDescendant(newParentId, id)) return state;
-
-          return {
-            pages: state.pages.map((page) =>
-              page.id === id
-                ? { ...page, parentId: newParentId, isExpanded: true }
-                : page
-            ),
-          };
-        }),
-
-      setAllPages: (pages: Page[]) =>
-        set({
+      applyServerPages: (vaultId, serverPages) => {
+        const pages = serverPages.map(fromServer);
+        set((s) => ({
           pages,
-          selectedPageId: pages[0]?.id ?? "",
-        }),
-
-      reorderPage: (draggedId: string, targetId: string, position: "before" | "after") =>
-        set((state) => {
-          const dragged = state.pages.find((p) => p.id === draggedId);
-          const target = state.pages.find((p) => p.id === targetId);
-
-          if (!dragged || !target || dragged.id === target.id) return state;
-
-          const withoutDragged = state.pages.filter(
-            (p) => p.id !== draggedId
-          );
-          const updatedDragged = { ...dragged, parentId: target.parentId };
-
-          const targetIndex = withoutDragged.findIndex(
-            (p) => p.id === targetId
-          );
-          const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
-
-          const newPages = [...withoutDragged];
-          newPages.splice(insertIndex, 0, updatedDragged);
-
-          return { pages: newPages };
-        }),
-
-      selectPage: (id: string) =>
-        set({
-          selectedPageId: id,
-        }),
+          selectedPageId: s.cacheOwner === vaultId && s.selectedPageId && pages.some((p) => p.id === s.selectedPageId)
+            ? s.selectedPageId
+            : pages.find((p) => !p.trashed)?.id ?? "",
+          cacheOwner: vaultId,
+          cache: { ...(s.cache ?? {}), [vaultId]: { pages, selectedPageId: s.cacheOwner === vaultId ? s.selectedPageId : "" } },
+        }));
+      },
     }),
 
     {
-      name: "notion-clone-storage",
-      storage: customStorage as unknown as import("zustand/middleware").PersistStorage<PageStore, PageStore>,
+      name: "vicharhub-cache",
+      partialize: (s) => ({ pages: s.pages, selectedPageId: s.selectedPageId, cacheOwner: s.cacheOwner, cache: s.cache }),
     }
   )
 );

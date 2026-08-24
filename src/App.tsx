@@ -1,19 +1,26 @@
-import { useEffect, useRef } from "react";
+import { useEffect} from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
+import AuthScreen from "./components/auth/AuthScreen";
 import useVaultStore, { type Vault } from "./store/useVaultStore";
+import { useAuthStore } from "./store/useAuthStore";
 
 function App() {
-  const { currentVaultId, vaults, createVault, setCurrentVaultId } = useVaultStore();
-  const appliedRef = useRef<string | null | undefined>(undefined);
-
-  // Re-apply the active vault to the page store whenever it changes,
-  // including on first load after refresh — fixes pages leaking across vaults
+  const { status } = useAuthStore();
+  const { currentVaultId, vaults, createVault, openVault } = useVaultStore();
   useEffect(() => {
-    if (appliedRef.current === currentVaultId) return;
-    appliedRef.current = currentVaultId;
-    setCurrentVaultId(currentVaultId ?? null);
-  }, [currentVaultId, setCurrentVaultId]);
+    if (status === "signedIn") void useVaultStore.getState().loadVaults();
+  }, [status]);
+
+  if (status === "checking") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-500">
+        Loading…
+      </div>
+    );
+  }
+
+  if (status === "signedOut") return <AuthScreen />;
 
   if (currentVaultId && vaults.some((v: Vault) => v.id === currentVaultId)) {
     return (
@@ -38,7 +45,7 @@ function App() {
           <div>
             <p className="text-zinc-400 mb-4">Select a vault:</p>
             {vaults.map((vault: Vault) => (
-              <button key={vault.id} onClick={() => setCurrentVaultId(vault.id)} className="block w-full text-left bg-zinc-800 text-zinc-200 px-4 py-2 rounded-md mb-2 hover:bg-zinc-700">{vault.name}</button>
+              <button key={vault.id} onClick={() => void openVault(vault.id)} className="block w-full text-left bg-zinc-800 text-zinc-200 px-4 py-2 rounded-md mb-2 hover:bg-zinc-700">{vault.name}</button>
             ))}
             <button onClick={() => { const name = prompt("Enter new vault name:"); if (name && name.trim()) createVault(name.trim()); }} className="bg-zinc-800 text-zinc-200 px-4 py-2 rounded-md hover:bg-zinc-700 mt-2">Create new vault</button>
           </div>

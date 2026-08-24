@@ -7,6 +7,13 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vicharhub-db",
+      "database_id": "5acb36cd-5cc7-4a74-be5b-cbba0e77cc23"
+    }
+  ],
   "observability": {
     "enabled": true
   }
