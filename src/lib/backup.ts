@@ -7,7 +7,7 @@ export function exportAllPages(pages: Page[]) {
 
   const link = document.createElement("a");
   link.href = url;
-  link.download = "notion-clone-backup.json";
+  link.download = "vicharhub-backup.json";
   link.click();
 
   URL.revokeObjectURL(url);

@@ -4,7 +4,7 @@ type Theme = "dark" | "light";
 
 function getInitialTheme(): Theme {
   if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem("notion-clone-theme");
+  const stored = localStorage.getItem("vicharhub-theme");
   return stored === "light" ? "light" : "dark";
 }
 
@@ -58,7 +58,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   toggleTheme: () => {
     const next = get().theme === "dark" ? "light" : "dark";
-    localStorage.setItem("notion-clone-theme", next);
+    localStorage.setItem("vicharhub-theme", next);
     set({ theme: next });
   },
 }));
