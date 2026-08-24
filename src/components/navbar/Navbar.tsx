@@ -1,19 +1,20 @@
 import { useState } from "react";
-import { ChevronDown, Check, Plus, Pencil, Trash2 } from "lucide-react";
 import { useUIStore } from "../../store/useUIStore";
 import { usePageStore } from "../../store/usePageStore";
 import useVaultStore from "../../store/useVaultStore";
-import { Search, Settings, Menu, Sun, Moon, Link2 } from "lucide-react";
+import { useAuthStore } from "../../store/useAuthStore";
+import { Search, Settings, Menu, Sun, Moon, Link2, Check, ChevronDown, Plus, Pencil, Trash2, LogOut } from "lucide-react";
 import ActivityDropdown from "./ActivityDropdown";
 
 function Navbar() {
   const { setCommandOpen, setSettingsOpen, setSidebarOpen, theme, toggleTheme } = useUIStore();
   const { pages, selectedPageId } = usePageStore();
-  const { vaults, currentVaultId, setCurrentVaultId, createVault, renameVault, deleteVault } = useVaultStore();
+  const { vaults, currentVaultId, openVault, createVault, renameVault, deleteVault } = useVaultStore();
   const [copied, setCopied] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
   const currentPage = pages.find((p) => p.id === selectedPageId);
   const currentVault = vaults.find((v) => v.id === currentVaultId);
+  const { user, logout } = useAuthStore();
 
   return (
     <header className="relative z-[60] flex h-14 items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 md:px-6">
@@ -31,7 +32,7 @@ function Navbar() {
                 <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">Vaults</p>
                 {vaults.map((v) => (
                   <div key={v.id} className="group flex items-center rounded-md px-1 hover:bg-zinc-800">
-                    <button onClick={() => { setCurrentVaultId(v.id); setVaultMenuOpen(false); }} className="flex flex-1 items-center justify-between py-2 pl-2 pr-1 text-sm text-zinc-300">
+                    <button onClick={() => { void openVault(v.id); setVaultMenuOpen(false); }} className="flex flex-1 items-center justify-between py-2 pl-2 pr-1 text-sm text-zinc-300">
                       <span>{v.name}</span>
                       {v.id === currentVaultId && <Check size={14} className="text-zinc-400" />}
                     </button>
@@ -42,7 +43,12 @@ function Navbar() {
                   </div>
                 ))}
                 <div className="my-1 border-t border-zinc-800" />
-                <button onClick={() => { const name = prompt("Enter new vault name:"); if (name && name.trim()) createVault(name.trim()); setVaultMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
+                <p className="px-3 py-1.5 truncate text-[11px] text-zinc-600">{user?.email}</p>
+                <button onClick={() => { void logout(); setVaultMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 hover:bg-zinc-800">
+                  <LogOut size={14} /> Log out
+                </button>
+                <div className="my-1 border-t border-zinc-800" />
+                <button onClick={() => { const name = prompt("Enter new vault name:"); if (name && name.trim()) void createVault(name.trim()); setVaultMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
                   <Plus size={14} /> New vault
                 </button>
               </div>
