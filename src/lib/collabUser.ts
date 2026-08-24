@@ -1,4 +1,4 @@
-const STORAGE_KEY = "notion-clone-collab-user";
+const STORAGE_KEY = "vicharhub-collab-user";
 
 export type CollabUser = {
   id: string;
