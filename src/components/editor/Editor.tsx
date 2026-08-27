@@ -43,19 +43,22 @@ function Editor() {
     );
   }
 
-  const handleCoverUpload = (
+  const handleCoverUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
-
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      updateCover(page.id, base64);
-    };
-    reader.readAsDataURL(file);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const { url } = await response.json();
+    updateCover(page.id, url);
   };
 
   return (

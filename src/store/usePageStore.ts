@@ -66,6 +66,7 @@ type PageStore = {
 
   renamePage: (id: string, title: string) => void;
   updateContent: (id: string, content: string) => void;
+  flushContent: (id: string) => void;
   updateIcon: (id: string, icon: string) => void;
   updateCover: (id: string, cover: string) => void;
 
@@ -92,9 +93,9 @@ const fail = (e: unknown) => {
   console.error(e);
   toast.error("Sync failed — change kept locally, will retry on next action");
 };
-
 // debounced content saves (typing fires many updates/sec)
 const contentTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+const pendingContent: Record<string, string> = {};
 
 const initialPages: Page[] = [];
 
@@ -188,10 +189,20 @@ export const usePageStore = create<PageStore>()(
 
       updateContent: (id, content) => {
         set((s) => ({ pages: s.pages.map((p) => (p.id === id ? { ...p, content, updatedAt: new Date() } : p)) }));
+        pendingContent[id] = content;
         clearTimeout(contentTimers[id]);
         contentTimers[id] = setTimeout(() => {
           api(`/api/pages/${id}`, { method: "PATCH", body: { content } }).catch(fail);
+          delete pendingContent[id];
         }, 600);
+      },
+
+      flushContent: (id) => {
+        if (!(id in pendingContent)) return;
+        clearTimeout(contentTimers[id]);
+        const content = pendingContent[id];
+        delete pendingContent[id];
+        api(`/api/pages/${id}`, { method: "PATCH", body: { content } }).catch(fail);
       },
 
       updateIcon: (id, icon) => {
