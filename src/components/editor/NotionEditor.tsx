@@ -40,7 +40,7 @@ import { getCachedLinkMetadata, fetchLinkMetadata } from "../../lib/linkUnfurl";
 const lowlight = createLowlight(common);
 
 function NotionEditor({ pageId }: { pageId: string }) {
-  const { pages, updateContent, selectPage } = usePageStore();
+  const { pages, updateContent, flushContent, selectPage } = usePageStore();
 
   const page = pages.find((p) => p.id === pageId);
 
@@ -128,6 +128,21 @@ function NotionEditor({ pageId }: { pageId: string }) {
       updateContent(pageId, editor.getHTML());
     },
   });
+
+  // Save immediately (don't wait for the debounce) when leaving this
+  // page — either switching pages inside the app, or closing/refreshing
+  // the tab entirely.
+  useEffect(() => {
+    function handleBeforeUnload() {
+      flushContent(pageId);
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      flushContent(pageId);
+    };
+  }, [pageId, flushContent]);
 
   // Clicking a mention pill navigates to that page.
   useEffect(() => {

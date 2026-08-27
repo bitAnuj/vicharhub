@@ -141,19 +141,20 @@ export const slashCommandItems: SlashCommandItem[] = [
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
-      input.onchange = () => {
+      input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = () => {
-          editor
-            .chain()
-            .focus()
-            .setImage({ src: reader.result as string })
-            .run();
-        };
-        reader.readAsDataURL(file);
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        const { url } = await response.json();
+        editor.chain().focus().setImage({ src: url }).run();
       };
       input.click();
     },
