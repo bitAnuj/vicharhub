@@ -6,8 +6,13 @@ import useVaultStore, { type Vault } from "./store/useVaultStore";
 import { useAuthStore } from "./store/useAuthStore";
 
 function App() {
-  const { status } = useAuthStore();
+  const { status, init } = useAuthStore();
   const { currentVaultId, vaults, createVault, openVault } = useVaultStore();
+
+  useEffect(() => {
+    void init();
+  }, [init]);
+
   useEffect(() => {
     if (status === "signedIn") void useVaultStore.getState().loadVaults();
   }, [status]);

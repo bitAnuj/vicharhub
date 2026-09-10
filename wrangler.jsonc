@@ -7,6 +7,12 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "vicharhub-uploads"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

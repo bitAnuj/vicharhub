@@ -1,7 +1,9 @@
+/// <reference types="@cloudflare/workers-types" />
 // ---------- Types ----------
 interface Env {
   LIVEBLOCKS_SECRET_KEY: string;
   DB: D1Database;
+  UPLOADS: R2Bucket;
   ASSETS: { fetch: typeof fetch };
 }
 
@@ -261,7 +263,42 @@ export default {
       if (m && request.method === "PATCH") return patchPage(request, env.DB, user!.id, m[1]);
       if (m && request.method === "DELETE")
         return deletePage(env.DB, user!.id, m[1], url.searchParams.get("permanent") === "true");
+      if (path === "/api/upload" && request.method === "POST") {
+        const formData = await request.formData();
+        const file = formData.get("file") as File | null;
+        if (!file) {
+          return new Response(JSON.stringify({ error: "No file provided" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
 
+        const key = `${crypto.randomUUID()}-${file.name}`;
+        await env.UPLOADS.put(key, await file.arrayBuffer(), {
+          httpMetadata: { contentType: file.type },
+        });
+
+        return new Response(JSON.stringify({ url: `/api/files/${key}` }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (path.startsWith("/api/files/") && request.method === "GET") {
+        const key = path.replace("/api/files/", "");
+        const object = await env.UPLOADS.get(key);
+
+        if (!object) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        return new Response(object.body, {
+          headers: {
+            "Content-Type":
+              object.httpMetadata?.contentType || "application/octet-stream",
+            "Cache-Control": "public, max-age=31536000",
+          },
+        });
+      }
       // ----- Liveblocks auth (unchanged behaviour) -----
       if (path === "/api/liveblocks-auth" && request.method === "POST")
         return handleLiveblocksAuth(request, env);
