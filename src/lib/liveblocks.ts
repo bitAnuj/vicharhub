@@ -6,17 +6,19 @@ const client = createClient({
   throttle: 16,
   authEndpoint: async (room) => {
     const user = getOrCreateCollabUser();
-
+    const accessToken = localStorage.getItem("vh_access_token") ?? "";
     const response = await fetch("/api/liveblocks-auth", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
       body: JSON.stringify({
         room,
         userId: user.id,
         userName: user.name,
       }),
     });
-
     return response.json();
   },
 });
