@@ -18,7 +18,24 @@ interface AuthState {
   init: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+function decodeJwtPayload(token: string): { sub?: string } | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredTokens() {
+  localStorage.removeItem("vh_access_token");
+  localStorage.removeItem("vh_refresh_token");
+}
+
+export const useAuthStore = create<AuthState>()((set, get) => ({
   status: "checking",
   user: { id: "", email: "", name: "" },
   accessToken: "",
@@ -35,8 +52,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const data = await response.json();
       if (response.ok) {
         localStorage.setItem("vh_access_token", data.accessToken ?? "");
-        localStorage.setItem("vh_refresh_token", data.refreshToken ?? "");
-        set({ user: { id: data.user.id, email: data.user.email, name: data.user.name ?? "" }, status: "signedIn" });
+        set({
+          accessToken: data.accessToken ?? "",
+          user: { id: data.user.id, email: data.user.email, name: data.user.name ?? "" },
+          status: "signedIn",
+        });
         await get().loadUser();
       } else {
         set({ status: "signedOut" });
@@ -48,9 +68,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   logout: async () => {
-    localStorage.removeItem("vh_access_token");
-    localStorage.removeItem("vh_refresh_token");
-    set({ user: { id: "", email: "", name: "" }, status: "signedOut" });
+    clearStoredTokens();
+    set({ user: { id: "", email: "", name: "" }, status: "signedOut", accessToken: "", refreshToken: "" });
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
@@ -72,8 +91,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const data = await response.json();
       if (response.ok) {
         localStorage.setItem("vh_access_token", data.accessToken ?? "");
-        localStorage.setItem("vh_refresh_token", data.refreshToken ?? "");
-        set({ user: { id: data.user.id, email: data.user.email, name: data.user.name ?? name ?? "" }, status: "signedIn" });
+        set({
+          accessToken: data.accessToken ?? "",
+          user: { id: data.user.id, email: data.user.email, name: data.user.name ?? name ?? "" },
+          status: "signedIn",
+        });
         await get().loadUser();
       } else {
         set({ status: "signedOut" });
@@ -86,31 +108,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   loadUser: async () => {
     const token = localStorage.getItem("vh_access_token");
-    if (!token) {
-      set({ status: "signedOut" });
+    const payload = token ? decodeJwtPayload(token) : null;
+    if (!token || !payload?.sub) {
+      clearStoredTokens();
+      set({ status: "signedOut", accessToken: "" });
       return;
     }
-    set({ status: "signedIn" });
-    try {
-      const payload = JSON.parse(atob(token));
-      set({ user: { id: payload.sub ?? "", email: "", name: "" } });
-    } catch (e) {
-      console.error("Failed to decode token", e);
-      set({ status: "signedOut" });
-    }
+    set({ status: "signedIn", accessToken: token, user: { id: payload.sub, email: "", name: "" } });
   },
   init: () => {
     const token = localStorage.getItem("vh_access_token");
-    if (!token) {
-      set({ status: "signedOut" });
+    const payload = token ? decodeJwtPayload(token) : null;
+    if (!token || !payload?.sub) {
+      clearStoredTokens();
+      set({ status: "signedOut", accessToken: "" });
       return;
     }
-    try {
-      const payload = JSON.parse(atob(token));
-      set({ user: { id: payload.sub ?? "", email: "", name: "" }, status: "signedIn" });
-    } catch (e) {
-      console.error("Token decode failed on init", e);
-      set({ status: "signedOut" });
-    }
+    set({ user: { id: payload.sub, email: "", name: "" }, status: "signedIn", accessToken: token });
   },
 }));
