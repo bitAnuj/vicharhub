@@ -2,6 +2,7 @@
 // ---------- Types ----------
 interface Env {
   LIVEBLOCKS_SECRET_KEY: string;
+  JWT_SECRET: string;
   DB: D1Database;
   UPLOADS: R2Bucket;
   ASSETS: { fetch: typeof fetch };
@@ -39,8 +40,9 @@ const json = (data: unknown, status = 200): Response =>
 const err = (message: string, status: number): Response =>
   json({ error: message }, status);
 
-const COOKIE_NAME = "vh_session";
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const REFRESH_COOKIE_NAME = "vh_refresh";
+const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const ACCESS_TTL_SECONDS = 60 * 15; // 15 minutes
 
 function corsHeaders(): HeadersInit {
   // Dev convenience: allow the Vite dev server origin
@@ -57,11 +59,11 @@ function getCookies(request: Request): Record<string, string> {
   return out;
 }
 
-function sessionCookie(request: Request, token: string, maxAge: number): string {
+function refreshCookie(request: Request, token: string, maxAge: number): string {
   const hostname = new URL(request.url).hostname;
   const isLocalDev = hostname === "localhost" || hostname === "127.0.0.1";
   const parts = [
-    `${COOKIE_NAME}=${token}`,
+    `${REFRESH_COOKIE_NAME}=${token}`,
     "HttpOnly",
     "SameSite=Lax",
     "Path=/",
@@ -129,34 +131,92 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
   return diff === 0;
 }
 
+// ---------- JWT (HMAC-SHA256, no dependencies) ----------
+function b64url(input: ArrayBuffer | string): string {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : new Uint8Array(input);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function b64urlDecode(input: string): Uint8Array {
+  const padded = input.replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+async function signJWT(payload: Record<string, unknown>, secret: string, ttlSeconds: number): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = b64url(JSON.stringify({ ...payload, iat: now, exp: now + ttlSeconds }));
+  const data = `${header}.${body}`;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return `${data}.${b64url(sig)}`;
+}
+
+async function verifyJWT(token: string, secret: string): Promise<{ sub: string } | null> {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [header, body, sig] = parts;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+  );
+  const valid = await crypto.subtle.verify(
+    "HMAC", key, b64urlDecode(sig), new TextEncoder().encode(`${header}.${body}`)
+  );
+  if (!valid) return null;
+  const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(body)));
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
+}
+
 // ---------- Sessions ----------
-async function createSession(db: D1Database, userId: string): Promise<string> {
+async function createRefreshToken(db: D1Database, userId: string): Promise<string> {
   const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
   const token = bytesToB64(tokenBytes);
   const id = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
   await db
-    .prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
-    .bind(id, userId, now + SESSION_TTL_SECONDS, now)
+    .prepare("INSERT INTO refresh_tokens (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+    .bind(id, userId, now + REFRESH_TTL_SECONDS, now)
     .run();
   return token;
 }
 
-async function getUserFromRequest(
-  db: D1Database,
-  request: Request
-): Promise<{ id: string; email: string; name: string } | null> {
-  const token = getCookies(request)[COOKIE_NAME];
-  if (!token) return null;
+async function getUserIdFromRefreshToken(db: D1Database, token: string): Promise<string | null> {
   const id = await sha256Hex(token);
   const now = Math.floor(Date.now() / 1000);
-  const user = await db
-    .prepare(
-      `SELECT u.id, u.email, u.name FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.id = ? AND s.expires_at > ?`
-    )
+  const row = await db
+    .prepare("SELECT user_id FROM refresh_tokens WHERE id = ? AND expires_at > ?")
     .bind(id, now)
+    .first<{ user_id: string }>();
+  return row?.user_id ?? null;
+}
+
+async function revokeRefreshToken(db: D1Database, token: string): Promise<void> {
+  const id = await sha256Hex(token);
+  await db.prepare("DELETE FROM refresh_tokens WHERE id = ?").bind(id).run();
+}
+
+// Verifies the short-lived access token sent as "Authorization: Bearer <jwt>".
+// No database hit needed — the signature alone proves it's valid.
+async function getUserFromRequest(
+  db: D1Database,
+  request: Request,
+  jwtSecret: string
+): Promise<{ id: string; email: string; name: string } | null> {
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) return null;
+
+  const payload = await verifyJWT(token, jwtSecret);
+  if (!payload?.sub) return null;
+
+  const user = await db
+    .prepare("SELECT id, email, name FROM users WHERE id = ?")
+    .bind(payload.sub)
     .first<{ id: string; email: string; name: string }>();
   return user ?? null;
 }
@@ -226,13 +286,14 @@ export default {
 
     try {
       // ----- Auth -----
-      if (path === "/api/auth/signup") return await signup(request, env.DB);
-      if (path === "/api/auth/login") return await login(request, env.DB);
+      if (path === "/api/auth/signup") return await signup(request, env.DB, env.JWT_SECRET);
+      if (path === "/api/auth/login") return await login(request, env.DB, env.JWT_SECRET);
+      if (path === "/api/auth/refresh") return await refresh(request, env.DB, env.JWT_SECRET);
       if (path === "/api/auth/logout") return await logout(request, env.DB);
-      if (path === "/api/auth/me") return await me(request, env.DB);
+      if (path === "/api/auth/me") return await me(request, env.DB, env.JWT_SECRET);
 
-      // ----- Everything below requires a session -----
-      const user = await getUserFromRequest(env.DB, request);
+      // ----- Everything below requires a valid access token -----
+      const user = await getUserFromRequest(env.DB, request, env.JWT_SECRET);
       if (!user && path.startsWith("/api/")) return err("Not signed in", 401);
 
       if (path === "/api/vaults" && request.method === "GET")
@@ -313,7 +374,7 @@ export default {
 };
 
 // ---------- Auth handlers ----------
-async function signup(request: Request, db: D1Database): Promise<Response> {
+async function signup(request: Request, db: D1Database, jwtSecret: string): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as {
     email?: string; password?: string; name?: string;
   };
@@ -333,17 +394,25 @@ async function signup(request: Request, db: D1Database): Promise<Response> {
     .bind(id, email, await hashPassword(password), name)
     .run();
 
-  // Housekeeping: drop expired sessions
-  await db.prepare("DELETE FROM sessions WHERE expires_at < unixepoch()").run();
+  // Housekeeping: drop expired refresh tokens
+  await db.prepare("DELETE FROM refresh_tokens WHERE expires_at < unixepoch()").run();
 
-  const token = await createSession(db, id);
-  return new Response(JSON.stringify({ user: { id, email, name } }), {
-    status: 201,
-    headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookie(request,token, SESSION_TTL_SECONDS) },
-  });
+  const refreshToken = await createRefreshToken(db, id);
+  const accessToken = await signJWT({ sub: id }, jwtSecret, ACCESS_TTL_SECONDS);
+
+  return new Response(
+    JSON.stringify({ user: { id, email, name }, accessToken }),
+    {
+      status: 201,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": refreshCookie(request, refreshToken, REFRESH_TTL_SECONDS),
+      },
+    }
+  );
 }
 
-async function login(request: Request, db: D1Database): Promise<Response> {
+async function login(request: Request, db: D1Database, jwtSecret: string): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   const row = await db
@@ -354,25 +423,53 @@ async function login(request: Request, db: D1Database): Promise<Response> {
   if (!row || !(await verifyPassword(body.password ?? "", row.password_hash)))
     return err("Invalid email or password", 401);
 
-  const token = await createSession(db, row.id);
+  const refreshToken = await createRefreshToken(db, row.id);
+  const accessToken = await signJWT({ sub: row.id }, jwtSecret, ACCESS_TTL_SECONDS);
+
   return new Response(
-    JSON.stringify({ user: { id: row.id, email: row.email, name: row.name } }),
-    { headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookie(request,token, SESSION_TTL_SECONDS) } }
+    JSON.stringify({ user: { id: row.id, email: row.email, name: row.name }, accessToken }),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": refreshCookie(request, refreshToken, REFRESH_TTL_SECONDS),
+      },
+    }
   );
 }
 
-async function logout(request: Request, db: D1Database): Promise<Response> {
-  const token = getCookies(request)[COOKIE_NAME];
-  if (token) {
-    await db.prepare("DELETE FROM sessions WHERE id = ?").bind(await sha256Hex(token)).run();
-  }
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookie(request,"", 0) },
+// Called by the frontend whenever the access token has expired, using the
+// httpOnly refresh cookie (never touched by JS) to mint a new one. Also
+// rotates the refresh token itself — the old one stops working immediately,
+// so a stolen/replayed refresh token can only ever be used once.
+async function refresh(request: Request, db: D1Database, jwtSecret: string): Promise<Response> {
+  const oldToken = getCookies(request)[REFRESH_COOKIE_NAME];
+  if (!oldToken) return err("Not signed in", 401);
+
+  const userId = await getUserIdFromRefreshToken(db, oldToken);
+  if (!userId) return err("Session expired, please sign in again", 401);
+
+  await revokeRefreshToken(db, oldToken);
+  const newRefreshToken = await createRefreshToken(db, userId);
+  const accessToken = await signJWT({ sub: userId }, jwtSecret, ACCESS_TTL_SECONDS);
+
+  return new Response(JSON.stringify({ accessToken }), {
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": refreshCookie(request, newRefreshToken, REFRESH_TTL_SECONDS),
+    },
   });
 }
 
-async function me(request: Request, db: D1Database): Promise<Response> {
-  const user = await getUserFromRequest(db, request);
+async function logout(request: Request, db: D1Database): Promise<Response> {
+  const token = getCookies(request)[REFRESH_COOKIE_NAME];
+  if (token) await revokeRefreshToken(db, token);
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { "Content-Type": "application/json", "Set-Cookie": refreshCookie(request, "", 0) },
+  });
+}
+
+async function me(request: Request, db: D1Database, jwtSecret: string): Promise<Response> {
+  const user = await getUserFromRequest(db, request, jwtSecret);
   if (!user) return err("Not signed in", 401);
   return json({ user });
 }
