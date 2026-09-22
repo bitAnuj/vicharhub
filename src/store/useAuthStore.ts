@@ -15,7 +15,7 @@ interface AuthState {
   logout: () => Promise<void>;
   signup: (email: string, password: string, name?: string) => Promise<void>;
   loadUser: () => Promise<void>;
-  init: () => void;
+  init: () => Promise<void>;
 }
 
 function decodeJwtPayload(token: string): { sub?: string } | null {
@@ -116,14 +116,75 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
     set({ status: "signedIn", accessToken: token, user: { id: payload.sub, email: "", name: "" } });
   },
-  init: () => {
-    const token = localStorage.getItem("vh_access_token");
-    const payload = token ? decodeJwtPayload(token) : null;
-    if (!token || !payload?.sub) {
+  init: async () => {
+    try {
+      const refreshResponse = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!refreshResponse.ok) {
+        clearStoredTokens();
+        set({
+          status: "signedOut",
+          accessToken: "",
+          refreshToken: "",
+          user: { id: "", email: "", name: "" },
+        });
+        return;
+      }
+
+      const refreshData = await refreshResponse.json();
+      const accessToken =
+        typeof refreshData.accessToken === "string"
+          ? refreshData.accessToken
+          : "";
+
+      if (!accessToken) {
+        clearStoredTokens();
+        set({ status: "signedOut", accessToken: "" });
+        return;
+      }
+
+      localStorage.setItem("vh_access_token", accessToken);
+
+      const meResponse = await fetch("/api/auth/me", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        credentials: "include",
+      });
+
+      if (!meResponse.ok) {
+        clearStoredTokens();
+        set({
+          status: "signedOut",
+          accessToken: "",
+          refreshToken: "",
+          user: { id: "", email: "", name: "" },
+        });
+        return;
+      }
+
+      const meData = await meResponse.json();
+
+      set({
+        status: "signedIn",
+        accessToken,
+        user: {
+          id: meData.user.id,
+          email: meData.user.email,
+          name: meData.user.name ?? "",
+        },
+      });
+    } catch {
       clearStoredTokens();
-      set({ status: "signedOut", accessToken: "" });
-      return;
+      set({
+        status: "signedOut",
+        accessToken: "",
+        refreshToken: "",
+        user: { id: "", email: "", name: "" },
+      });
     }
-    set({ user: { id: payload.sub, email: "", name: "" }, status: "signedIn", accessToken: token });
   },
 }));
