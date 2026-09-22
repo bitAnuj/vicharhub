@@ -43,24 +43,18 @@ function Editor() {
     );
   }
 
-  const handleCoverUpload = async (
+  const handleCoverUpload = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    const { url } = await response.json();
-    updateCover(page.id, url);
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateCover(page.id, reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
-
   return (
     <div className="mx-auto max-w-4xl">
       <input

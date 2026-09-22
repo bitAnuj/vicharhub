@@ -3,8 +3,9 @@
 interface Env {
   LIVEBLOCKS_SECRET_KEY: string;
   JWT_SECRET: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
   DB: D1Database;
-  UPLOADS: R2Bucket;
   ASSETS: { fetch: typeof fetch };
 }
 
@@ -291,6 +292,8 @@ export default {
       if (path === "/api/auth/refresh") return await refresh(request, env.DB, env.JWT_SECRET);
       if (path === "/api/auth/logout") return await logout(request, env.DB);
       if (path === "/api/auth/me") return await me(request, env.DB, env.JWT_SECRET);
+      if (path === "/api/auth/google") return await googleLogin(request, env);
+      if (path === "/api/auth/google/callback") return await googleCallback(request, env, env.DB);
 
       // ----- Everything below requires a valid access token -----
       const user = await getUserFromRequest(env.DB, request, env.JWT_SECRET);
@@ -324,42 +327,6 @@ export default {
       if (m && request.method === "PATCH") return patchPage(request, env.DB, user!.id, m[1]);
       if (m && request.method === "DELETE")
         return deletePage(env.DB, user!.id, m[1], url.searchParams.get("permanent") === "true");
-      if (path === "/api/upload" && request.method === "POST") {
-        const formData = await request.formData();
-        const file = formData.get("file") as File | null;
-        if (!file) {
-          return new Response(JSON.stringify({ error: "No file provided" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        const key = `${crypto.randomUUID()}-${file.name}`;
-        await env.UPLOADS.put(key, await file.arrayBuffer(), {
-          httpMetadata: { contentType: file.type },
-        });
-
-        return new Response(JSON.stringify({ url: `/api/files/${key}` }), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (path.startsWith("/api/files/") && request.method === "GET") {
-        const key = path.replace("/api/files/", "");
-        const object = await env.UPLOADS.get(key);
-
-        if (!object) {
-          return new Response("Not found", { status: 404 });
-        }
-
-        return new Response(object.body, {
-          headers: {
-            "Content-Type":
-              object.httpMetadata?.contentType || "application/octet-stream",
-            "Cache-Control": "public, max-age=31536000",
-          },
-        });
-      }
       // ----- Liveblocks auth (unchanged behaviour) -----
       if (path === "/api/liveblocks-auth" && request.method === "POST")
         return handleLiveblocksAuth(request, env);
@@ -372,6 +339,91 @@ export default {
     }
   },
 };
+
+// ---------- Google OAuth ----------
+function googleRedirectUri(request: Request): string {
+  return `http://127.0.0.1:8787/api/auth/google/callback`;
+}
+
+async function googleLogin(request: Request, env: Env): Promise<Response> {
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: googleRedirectUri(request),
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "online",
+    prompt: "select_account",
+  });
+  return Response.redirect(
+    `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+    302
+  );
+}
+
+async function googleCallback(request: Request, env: Env, db: D1Database): Promise<Response> {
+  const code = new URL(request.url).searchParams.get("code");
+  if (!code) return err("Missing authorization code", 400);
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: googleRedirectUri(request),
+      grant_type: "authorization_code",
+    }),
+  });
+
+  if (!tokenRes.ok) return err("Google sign-in failed", 401);
+  const tokens = (await tokenRes.json()) as { access_token: string };
+
+  const profileRes = await fetch(
+    "https://www.googleapis.com/oauth2/v3/userinfo",
+    { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+  );
+  if (!profileRes.ok) return err("Google sign-in failed", 401);
+
+  const profile = (await profileRes.json()) as {
+    sub: string; email: string; name?: string; picture?: string;
+  };
+
+  // Link to an existing account by google_sub, or by matching email
+  // (so someone who signed up with a password can also use Google later).
+  const user = await db
+    .prepare("SELECT id FROM users WHERE google_sub = ? OR email = ?")
+    .bind(profile.sub, profile.email.toLowerCase())
+    .first<{ id: string }>();
+
+  let userId: string;
+  if (user) {
+    userId = user.id;
+    await db
+      .prepare("UPDATE users SET google_sub = ?, avatar = ? WHERE id = ?")
+      .bind(profile.sub, profile.picture ?? "", userId)
+      .run();
+  } else {
+    userId = crypto.randomUUID();
+    await db
+      .prepare(
+        "INSERT INTO users (id, email, password_hash, name, google_sub, avatar) VALUES (?, ?, '', ?, ?, ?)"
+      )
+      .bind(userId, profile.email.toLowerCase(), profile.name ?? "", profile.sub, profile.picture ?? "")
+      .run();
+  }
+
+  const refreshToken = await createRefreshToken(db, userId);
+  const origin = new URL(request.url).origin;
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: origin,
+      "Set-Cookie": refreshCookie(request, refreshToken, REFRESH_TTL_SECONDS),
+    },
+  });
+}
 
 // ---------- Auth handlers ----------
 async function signup(request: Request, db: D1Database, jwtSecret: string): Promise<Response> {
