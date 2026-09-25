@@ -342,8 +342,10 @@ export default {
 
 // ---------- Google OAuth ----------
 function googleRedirectUri(request: Request): string {
-  return `http://127.0.0.1:8787/api/auth/google/callback`;
+  const origin = new URL(request.url).origin;
+  return `${origin}/api/auth/google/callback`;
 }
+
 
 async function googleLogin(request: Request, env: Env): Promise<Response> {
   const params = new URLSearchParams({
