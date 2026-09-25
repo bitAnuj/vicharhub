@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal, ImagePlus, X } from "lucide-react";
 import { usePageStore } from "../../store/usePageStore";
 import CollaborativeEditor from "./CollaborativeEditor";
+import CollaborativeSpreadsheetEditor from "./CollaborativeSpreadsheetEditor";
 import IconPicker from "./IconPicker";
 import Breadcrumbs from "./Breadcrumbs";
 import PageContextMenu from "../ui/PageContextMenu";
@@ -25,8 +26,21 @@ function Editor() {
   useClickOutside(menuRef, () => setMenuOpen(false));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   const page = pages.find((p) => p.id === selectedPageId);
+
+  const isSheetPage = Boolean(
+    page?.content && page.content.startsWith('{"type":"spreadsheet"')
+  );
+
+  const [activeTab, setActiveTab] = useState<"doc" | "sheet">(
+    isSheetPage ? "sheet" : "doc"
+  );
+
+  useEffect(() => {
+    setActiveTab(isSheetPage ? "sheet" : "doc");
+  }, [page?.id, isSheetPage]);
 
   if (!page) {
     return (
@@ -55,6 +69,7 @@ function Editor() {
     };
     reader.readAsDataURL(file);
   };
+
   return (
     <div className="mx-auto max-w-4xl">
       <input
@@ -70,28 +85,19 @@ function Editor() {
           <img
             src={page.cover}
             alt="Cover"
-            className="h-56 w-full object-cover"
+            className="h-48 w-full rounded-lg object-cover"
           />
-          <div className="absolute right-4 top-4 flex gap-2 md:hidden md:group-hover:flex">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-md bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm hover:bg-black/80"
-            >
-              <ImagePlus size={13} />
-              Change
-            </button>
-            <button
-              onClick={() => updateCover(page.id, "")}
-              className="flex items-center gap-1.5 rounded-md bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm hover:bg-black/80"
-            >
-              <X size={13} />
-              Remove
-            </button>
-          </div>
+          <button
+            onClick={() => updateCover(page.id, "")}
+            className="absolute right-2 top-2 rounded bg-zinc-900/80 p-1 text-zinc-300 opacity-0 transition-opacity hover:text-white group-hover:opacity-100"
+            title="Remove cover"
+          >
+            <X size={16} />
+          </button>
         </div>
       ) : null}
 
-      <div className="px-4 sm:px-8 md:px-16">
+      <div className="px-4 sm:px-8">
         <div className="mb-4 flex items-center justify-between">
           <Breadcrumbs page={page} />
 
@@ -99,24 +105,28 @@ function Editor() {
             {!page.cover && (
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               >
-                <ImagePlus size={13} />
-                Add cover
+                <ImagePlus size={14} />
+                <span>Add cover</span>
               </button>
             )}
 
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((o) => !o)}
-                className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                title="Page options"
               >
-                <MoreHorizontal size={18} />
+                <MoreHorizontal size={16} />
               </button>
 
               {menuOpen && (
                 <PageContextMenu
-                  onRename={() => setMenuOpen(false)}
+                  onRename={() => {
+                    titleInputRef.current?.focus();
+                    setMenuOpen(false);
+                  }}
                   onDuplicate={() => {
                     duplicatePage(page.id);
                     setMenuOpen(false);
@@ -141,17 +151,46 @@ function Editor() {
         />
 
         <input
+          ref={titleInputRef}
           value={page.title}
           onChange={(e) => renamePage(page.id, e.target.value)}
           placeholder="Untitled"
           className="mb-1 w-full bg-transparent text-3xl font-bold outline-none placeholder:text-zinc-600 sm:text-4xl"
         />
 
-        <p className="mb-8 text-xs text-zinc-600">
+        <p className="mb-4 text-xs text-zinc-600">
           Last updated {new Date(page.updatedAt).toLocaleString()}
         </p>
 
-        <CollaborativeEditor key={page.id} pageId={page.id} />
+        {/* View Switcher Tabs */}
+        <div className="mb-4 flex items-center gap-2 border-b border-zinc-200 pb-2 dark:border-zinc-800">
+          <button
+            onClick={() => setActiveTab("doc")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === "doc"
+                ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            📝 Document
+          </button>
+          <button
+            onClick={() => setActiveTab("sheet")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === "sheet"
+                ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            📊 Spreadsheet
+          </button>
+        </div>
+
+        {activeTab === "doc" ? (
+          <CollaborativeEditor key={page.id} pageId={page.id} />
+        ) : (
+          <CollaborativeSpreadsheetEditor key={page.id} pageId={page.id} />
+        )}
       </div>
     </div>
   );

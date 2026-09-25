@@ -50,6 +50,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "jspreadsheet-ce": "^5.0.4",
+    "jsuites": "^6.4.3",
     "katex": "^0.18.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.27.0",
