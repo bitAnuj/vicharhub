@@ -30,7 +30,15 @@ type Presence = {
 
 type Storage = Record<string, never>;
 type UserMeta = { id: string; info: { name: string } };
-type RoomEvent = never;
+
+export type RoomEvent =
+  | {
+      type: "SHEET_CELL_CHANGE";
+      x: number;
+      y: number;
+      value: any;
+    };
+
 type ThreadMetadata = { resolved: boolean };
 
 export const {
