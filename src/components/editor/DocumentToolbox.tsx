@@ -13,8 +13,11 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  FileSpreadsheet,
+  PenTool,
 } from "lucide-react";
 import { useState } from "react";
+import { usePageStore } from "../../store/usePageStore";
 
 type Props = {
   editor: Editor;
@@ -27,6 +30,81 @@ export default function DocumentToolbox({ editor }: Props) {
 
   const insertTable = () => {
     editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  };
+
+  const insertSpreadsheet = () => {
+    const { addPage, selectedPageId, selectPage } = usePageStore.getState();
+    const currentDocId = selectedPageId;
+    const cleanContent = JSON.stringify({
+      type: "spreadsheet",
+      sheets: [
+        {
+          id: "sheet-1",
+          title: "Sheet1",
+          data: [
+            ["", "", "", "", "", ""],
+            ["", "", "", "", "", ""],
+            ["", "", "", "", "", ""],
+            ["", "", "", "", "", ""],
+            ["", "", "", "", "", ""],
+          ],
+        },
+      ],
+      data: [
+        ["", "", "", "", "", ""],
+        ["", "", "", "", "", ""],
+        ["", "", "", "", "", ""],
+        ["", "", "", "", "", ""],
+        ["", "", "", "", "", ""],
+      ],
+    });
+
+    const newSheetId = addPage({
+      title: "Spreadsheet",
+      content: cleanContent,
+      icon: "📊",
+    });
+
+    if (currentDocId) {
+      selectPage(currentDocId);
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "spreadsheetEmbed",
+        attrs: { pageId: newSheetId, height: 380 },
+      })
+      .run();
+  };
+
+  const insertBoard = () => {
+    const { addPage, selectedPageId, selectPage } = usePageStore.getState();
+    const currentDocId = selectedPageId;
+    const cleanContent = JSON.stringify({
+      type: "board",
+      elements: [],
+    });
+
+    const newBoardId = addPage({
+      title: "Whiteboard",
+      content: cleanContent,
+      icon: "🎨",
+    });
+
+    if (currentDocId) {
+      selectPage(currentDocId);
+    }
+
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "boardEmbed",
+        attrs: { pageId: newBoardId, height: 520 },
+      })
+      .run();
   };
 
   const tools = [
@@ -87,6 +165,20 @@ export default function DocumentToolbox({ editor }: Props) {
       isActive: editor.isActive("table"),
     },
     {
+      label: "Sheet",
+      title: "Embed Clean Spreadsheet",
+      icon: FileSpreadsheet,
+      action: insertSpreadsheet,
+      isActive: editor.isActive("spreadsheetEmbed"),
+    },
+    {
+      label: "Board",
+      title: "Embed Excalidraw Whiteboard",
+      icon: PenTool,
+      action: insertBoard,
+      isActive: editor.isActive("boardEmbed"),
+    },
+    {
       label: "Callout",
       title: "Callout Box",
       icon: MessageSquare,
@@ -123,21 +215,21 @@ export default function DocumentToolbox({ editor }: Props) {
 
       {expanded && (
         <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-zinc-200/60 dark:border-zinc-800/60">
-          {tools.map((tool) => {
-            const Icon = tool.icon;
+          {tools.map((t) => {
+            const Icon = t.icon;
             return (
               <button
-                key={tool.label}
-                title={tool.title}
-                onClick={tool.action}
-                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
-                  tool.isActive
-                    ? "bg-indigo-600 text-white"
-                    : "text-zinc-700 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                key={t.label}
+                onClick={t.action}
+                title={t.title}
+                className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition ${
+                  t.isActive
+                    ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+                    : "text-zinc-600 hover:bg-zinc-200/60 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 }`}
               >
                 <Icon size={13} />
-                <span>{tool.label}</span>
+                <span>{t.label}</span>
               </button>
             );
           })}

@@ -24,6 +24,8 @@ import MathBlock from "./math/MathBlock";
 import { Column, Columns } from "./columns/Columns";
 import DatabaseBlock from "./database/DatabaseBlock";
 import FileBlock from "./file/FileBlock";
+import SpreadsheetEmbed from "./spreadsheet-embed/SpreadsheetEmbedExtension";
+import BoardEmbed from "./board-embed/BoardEmbedExtension";
 import SelectionToolbar from "./SelectionToolbar";
 import DocumentToolbox from "./DocumentToolbox";
 import { Download } from "lucide-react";
@@ -53,15 +55,7 @@ function NotionEditor({ pageId }: { pageId: string }) {
     position: { x: number; y: number };
   } | null>(null);
 
-  // Check if current page content is spreadsheet JSON
-  const isSpreadsheet = Boolean(
-    page?.content?.includes('"type":"spreadsheet"') ||
-    page?.content?.includes('"type": "spreadsheet"')
-  );
-
-  const liveblocks = useLiveblocksExtension({
-    initialContent: isSpreadsheet ? "<p></p>" : page?.content || "<p></p>",
-  });
+  const liveblocks = useLiveblocksExtension();
 
   const editor = useEditor({
     extensions: [
@@ -70,13 +64,13 @@ function NotionEditor({ pageId }: { pageId: string }) {
         codeBlock: false,
         undoRedo: false,
       }),
-        CodeBlockLowlight.extend({
-          addNodeView() {
-            return ReactNodeViewRenderer(CodeBlockView);
-          },
-        }).configure({
-          lowlight,
-        }),
+      CodeBlockLowlight.extend({
+        addNodeView() {
+          return ReactNodeViewRenderer(CodeBlockView);
+        },
+      }).configure({
+        lowlight,
+      }),
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === "heading") return "Heading";
@@ -110,6 +104,8 @@ function NotionEditor({ pageId }: { pageId: string }) {
       Columns,
       DatabaseBlock,
       FileBlock,
+      SpreadsheetEmbed,
+      BoardEmbed,
       SlashCommand,
       createPageMention(),
       LinkUnfurl,
@@ -137,48 +133,30 @@ function NotionEditor({ pageId }: { pageId: string }) {
             url
           );
         if (isEmbeddable) {
-          event.preventDefault();
-          editor?.commands.insertContent({
-            type: "embed",
-            attrs: { src: url },
-          });
+          editor?.chain().focus().setEmbed(url).run();
           return true;
         }
 
-        return false;
+        // Otherwise insert an unfurl card with metadata
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: "linkUnfurl",
+            attrs: { url },
+          })
+          .run();
+        return true;
       },
     },
     onUpdate: ({ editor }) => {
-      // Guard against corrupting spreadsheet data if user switches tabs
-      const current = usePageStore.getState().pages.find((p) => p.id === pageId);
-      if (
-        current?.content?.includes('"type":"spreadsheet"') ||
-        current?.content?.includes('"type": "spreadsheet"')
-      ) {
-        return;
-      }
-      updateContent(pageId, editor.getHTML());
+      const html = editor.getHTML();
+      updateContent(pageId, html);
     },
   });
 
-  const authUserName = useAuthStore((s) => s.user?.name);
-
-  // Sync TipTap collaborative caret with latest user display name
+  // Listen for custom collab name change events (from Settings panel)
   useEffect(() => {
-    if (!editor) return;
-    const name = authUserName?.trim() || getOrCreateCollabUser().name || "Guest";
-    const color = getOrCreateCollabUser().color || "#4f46e5";
-    try {
-      if (typeof (editor.commands as any).updateUser === "function") { // eslint-disable-line @typescript-eslint/no-explicit-any
-        (editor.commands as any).updateUser({ name, color }); // eslint-disable-line @typescript-eslint/no-explicit-any
-      }
-    } catch {
-      // ignore
-    }
-  }, [editor, authUserName]);
-
-  useEffect(() => {
-    if (!editor) return;
     function handleNameChange(e: Event) {
       const detail = (e as CustomEvent<{ name?: string }>).detail;
       if (detail?.name) {
