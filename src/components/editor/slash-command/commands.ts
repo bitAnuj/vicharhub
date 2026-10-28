@@ -22,8 +22,10 @@ import {
   Columns3,
   Database,
   Paperclip,
+  FileSpreadsheet,
+  PenTool,
   type LucideIcon,
-  } from "lucide-react";
+} from "lucide-react";
 import { usePageStore } from "../../../store/usePageStore";
 
 export type SlashCommandItem = {
@@ -37,9 +39,9 @@ export type SlashCommandItem = {
 export const slashCommandItems: SlashCommandItem[] = [
   {
     title: "Text",
-    description: "Plain paragraph text",
+    description: "Just start typing with plain text",
     icon: Text,
-    keywords: ["paragraph", "text", "p"],
+    keywords: ["p", "paragraph", "text", "plain"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).setParagraph().run(),
   },
@@ -47,60 +49,60 @@ export const slashCommandItems: SlashCommandItem[] = [
     title: "Heading 1",
     description: "Big section heading",
     icon: Heading1,
-    keywords: ["h1", "heading", "title", "big"],
+    keywords: ["h1", "title", "heading 1", "big"],
     command: ({ editor, range }) =>
       editor
         .chain()
         .focus()
         .deleteRange(range)
-        .setNode("heading", { level: 1 })
+        .setHeading({ level: 1 })
         .run(),
   },
   {
     title: "Heading 2",
     description: "Medium section heading",
     icon: Heading2,
-    keywords: ["h2", "heading", "subtitle"],
+    keywords: ["h2", "subtitle", "heading 2", "medium"],
     command: ({ editor, range }) =>
       editor
         .chain()
         .focus()
         .deleteRange(range)
-        .setNode("heading", { level: 2 })
+        .setHeading({ level: 2 })
         .run(),
   },
   {
     title: "Heading 3",
     description: "Small section heading",
     icon: Heading3,
-    keywords: ["h3", "heading"],
+    keywords: ["h3", "subheading", "heading 3", "small"],
     command: ({ editor, range }) =>
       editor
         .chain()
         .focus()
         .deleteRange(range)
-        .setNode("heading", { level: 3 })
+        .setHeading({ level: 3 })
         .run(),
   },
   {
-    title: "Bulleted list",
-    description: "Simple bullet list",
+    title: "Bullet list",
+    description: "Create a simple bulleted list",
     icon: List,
-    keywords: ["bullet", "list", "ul"],
+    keywords: ["bullet", "unordered", "list", "bullets"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleBulletList().run(),
   },
   {
     title: "Numbered list",
-    description: "List with numbering",
+    description: "Create a list with numbering",
     icon: ListOrdered,
-    keywords: ["numbered", "ordered", "list", "ol"],
+    keywords: ["numbered", "ordered", "list", "numbers"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
   },
   {
     title: "To-do list",
-    description: "Checkbox task item",
+    description: "Track tasks with a to-do list",
     icon: ListTodo,
     keywords: ["todo", "task", "checkbox", "check"],
     command: ({ editor, range }) =>
@@ -116,25 +118,33 @@ export const slashCommandItems: SlashCommandItem[] = [
   },
   {
     title: "Code block",
-    description: "Code snippet with syntax highlighting",
+    description: "Display code with syntax highlighting",
     icon: Code,
-    keywords: ["code", "snippet", "codeblock"],
+    keywords: ["code", "codeblock", "snippet", "pre"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
   },
   {
+    title: "Callout",
+    description: "Make writing stand out with an alert box",
+    icon: Lightbulb,
+    keywords: ["callout", "alert", "box", "note", "tip", "warning"],
+    command: ({ editor, range }) =>
+      (editor.chain().focus().deleteRange(range) as any).setCallout().run(), // eslint-disable-line @typescript-eslint/no-explicit-any
+  },
+  {
     title: "Divider",
-    description: "Horizontal line divider",
+    description: "Visually divide blocks with a horizontal line",
     icon: Minus,
-    keywords: ["divider", "hr", "line", "separator"],
+    keywords: ["divider", "horizontal rule", "hr", "separator", "line"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
   {
     title: "Image",
-    description: "Upload an image from your computer",
+    description: "Embed with a link or upload with file picker",
     icon: ImageIcon,
-    keywords: ["image", "picture", "photo", "upload"],
+    keywords: ["image", "photo", "picture", "upload", "img"],
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
 
@@ -147,11 +157,8 @@ export const slashCommandItems: SlashCommandItem[] = [
 
         const reader = new FileReader();
         reader.onload = () => {
-          editor
-            .chain()
-            .focus()
-            .setImage({ src: reader.result as string })
-            .run();
+          const src = reader.result as string;
+          editor.chain().focus().setImage({ src }).run();
         };
         reader.readAsDataURL(file);
       };
@@ -159,18 +166,99 @@ export const slashCommandItems: SlashCommandItem[] = [
     },
   },
   {
-    title: "Callout",
-    description: "Highlighted box to draw attention",
-    icon: Lightbulb,
-    keywords: ["callout", "highlight", "note", "tip", "warning"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setCallout().run(),
+    title: "Spreadsheet",
+    description: "Embed an interactive Google-like spreadsheet",
+    icon: FileSpreadsheet,
+    keywords: ["spreadsheet", "excel", "sheets", "sheet", "calc", "formula", "grid", "embed spreadsheet"],
+    command: ({ editor, range }) => {
+      const { addPage, selectedPageId, selectPage } = usePageStore.getState();
+      const currentDocId = selectedPageId;
+
+      const cleanContent = JSON.stringify({
+        type: "spreadsheet",
+        sheets: [
+          {
+            id: "sheet-1",
+            title: "Sheet1",
+            data: [
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+            ],
+          },
+        ],
+        data: [
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+        ],
+      });
+
+      const newSheetId = addPage({
+        title: "Spreadsheet",
+        content: cleanContent,
+        icon: "📊",
+      });
+
+      if (currentDocId) {
+        selectPage(currentDocId);
+      }
+
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: "spreadsheetEmbed",
+          attrs: { pageId: newSheetId, height: 380 },
+        })
+        .run();
+    },
+  },
+  {
+    title: "Whiteboard (Board)",
+    description: "Embed an infinite Excalidraw drawing canvas",
+    icon: PenTool,
+    keywords: ["board", "whiteboard", "draw", "sketch", "excalidraw", "diagram", "canvas", "flowchart"],
+    command: ({ editor, range }) => {
+      const { addPage, selectedPageId, selectPage } = usePageStore.getState();
+      const currentDocId = selectedPageId;
+
+      const cleanContent = JSON.stringify({
+        type: "board",
+        elements: [],
+      });
+
+      const newBoardId = addPage({
+        title: "Whiteboard",
+        content: cleanContent,
+        icon: "🎨",
+      });
+
+      if (currentDocId) {
+        selectPage(currentDocId);
+      }
+
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: "boardEmbed",
+          attrs: { pageId: newBoardId, height: 520 },
+        })
+        .run();
+    },
   },
   {
     title: "Table",
     description: "Insert a simple table",
     icon: Table2,
-    keywords: ["table", "grid", "spreadsheet"],
+    keywords: ["table", "grid", "simple table"],
     command: ({ editor, range }) =>
       editor
         .chain()

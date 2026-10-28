@@ -1,4 +1,4 @@
-import { Home, Plus, Star, Trash2, X } from "lucide-react";
+import { Home, Plus, Star, Trash2, X, PenTool } from "lucide-react";
 
 import { usePageStore } from "../../store/usePageStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -19,6 +19,29 @@ function Sidebar() {
   const visiblePages = pages.filter((page) => !page.trashed);
   const favoritePages = visiblePages.filter((page) => page.favorite);
   const rootPages = visiblePages.filter((page) => page.parentId === null);
+
+  const handleOpenBoard = () => {
+    const existingBoard = visiblePages.find(
+      (p) =>
+        p.icon === "🎨" ||
+        p.title.toLowerCase().includes("board") ||
+        p.title.toLowerCase().includes("whiteboard") ||
+        (p.content && p.content.includes('"type":"board"'))
+    );
+    if (existingBoard) {
+      selectPage(existingBoard.id);
+    } else {
+      addPage({
+        title: "Whiteboard",
+        icon: "🎨",
+        content: JSON.stringify({
+          type: "board",
+          elements: [],
+        }),
+      });
+    }
+    setSidebarOpen(false);
+  };
 
   return (
     <>
@@ -55,6 +78,14 @@ function Sidebar() {
           >
             <Home size={16} className="text-zinc-500 dark:text-zinc-400" />
             Home Dashboard
+          </button>
+
+          <button
+            onClick={handleOpenBoard}
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <PenTool size={16} className="text-purple-500 dark:text-purple-400" />
+            Whiteboard
           </button>
 
           <button

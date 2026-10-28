@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { toast } from "sonner";
 import { api, ApiError } from "../lib/api";
 
-type Page = {
+export type Page = {
   id: string;
   title: string;
   content: string;
@@ -17,7 +17,7 @@ type Page = {
   updatedAt: Date;
 };
 
-type ServerPage = {
+export type ServerPage = {
   id: string;
   vaultId: string;
   parentId: string | null;

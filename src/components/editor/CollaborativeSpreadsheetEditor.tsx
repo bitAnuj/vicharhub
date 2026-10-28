@@ -4,7 +4,11 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { getOrCreateCollabUser, COLLAB_NAME_CHANGE_EVENT } from "../../lib/collabUser";
 import SpreadsheetEditor from "./SpreadsheetEditor";
 
-type Props = { pageId: string };
+type Props = {
+  pageId: string;
+  isEmbedded?: boolean;
+  embeddedHeight?: number;
+};
 
 function PresenceNameSync() {
   const updateMyPresence = useUpdateMyPresence();
@@ -43,7 +47,11 @@ function PresenceNameSync() {
   return null;
 }
 
-export default function CollaborativeSpreadsheetEditor({ pageId }: Props) {
+export default function CollaborativeSpreadsheetEditor({
+  pageId,
+  isEmbedded,
+  embeddedHeight,
+}: Props) {
   const authUser = useAuthStore((s) => s.user);
   const currentName = authUser?.name?.trim() || getOrCreateCollabUser().name || "Guest";
   const currentColor = getOrCreateCollabUser().color || "#4f46e5";
@@ -60,7 +68,11 @@ export default function CollaborativeSpreadsheetEditor({ pageId }: Props) {
       }}
     >
       <PresenceNameSync />
-      <SpreadsheetEditor pageId={pageId} />
+      <SpreadsheetEditor
+        pageId={pageId}
+        isEmbedded={isEmbedded}
+        embeddedHeight={embeddedHeight}
+      />
     </LiveblocksRoomProvider>
   );
 }

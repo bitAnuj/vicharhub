@@ -9,10 +9,12 @@ import {
   Star,
   Sparkles,
   ArrowRight,
+  PenTool,
 } from "lucide-react";
 import { usePageStore } from "../../store/usePageStore";
 import CollaborativeEditor from "./CollaborativeEditor";
 import CollaborativeSpreadsheetEditor from "./CollaborativeSpreadsheetEditor";
+import BoardEditor from "../board/BoardEditor";
 import IconPicker from "./IconPicker";
 import Breadcrumbs from "./Breadcrumbs";
 import PageContextMenu from "../ui/PageContextMenu";
@@ -62,14 +64,24 @@ function Editor() {
     )
   );
 
+  const isBoardPage = Boolean(
+    page?.content && (
+      page.content.startsWith('{"type":"board"') ||
+      page.content.includes('"type":"board"') ||
+      page.content.includes('"type": "board"')
+    )
+  );
+
   const [activeTabOverride, setActiveTabOverride] = useState<{
     pageId: string;
-    tab: "doc" | "sheet";
+    tab: "doc" | "sheet" | "board";
   } | null>(null);
 
-  const activeTab: "doc" | "sheet" =
+  const activeTab: "doc" | "sheet" | "board" =
     activeTabOverride && activeTabOverride.pageId === page?.id
       ? activeTabOverride.tab
+      : isBoardPage
+      ? "board"
       : isSheetPage
       ? "sheet"
       : "doc";
@@ -94,24 +106,38 @@ function Editor() {
             id: "sheet-1",
             title: "Sheet1",
             data: [
-              ["Item", "Quantity", "Price", "=B1*C1"],
-              ["Notebook", "5", "12", "=B2*C2"],
-              ["Pen", "10", "2", "=B3*C3"],
-              ["Desk Mat", "1", "25", "=B4*C4"],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
+              ["", "", "", "", "", ""],
             ],
           },
         ],
         data: [
-          ["Item", "Quantity", "Price", "=B1*C1"],
-          ["Notebook", "5", "12", "=B2*C2"],
-          ["Pen", "10", "2", "=B3*C3"],
-          ["Desk Mat", "1", "25", "=B4*C4"],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
+          ["", "", "", "", "", ""],
         ],
       });
       addPage({
         title: "Spreadsheet",
         icon: "📊",
         content: defaultSpreadsheetContent,
+      });
+    };
+
+    const createBoardPage = () => {
+      const defaultBoardContent = JSON.stringify({
+        type: "board",
+        elements: [],
+      });
+      addPage({
+        title: "Whiteboard",
+        icon: "🎨",
+        content: defaultBoardContent,
       });
     };
 
@@ -128,13 +154,13 @@ function Editor() {
                 Workspace Dashboard
               </h1>
               <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
-                Create new documents, launch spreadsheets, or pick up where you left off.
+                Create new documents, launch spreadsheets, sketch on whiteboards, or pick up where you left off.
               </p>
             </div>
           </div>
 
           {/* Quick Action Tiles */}
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               onClick={() => addPage()}
               className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white p-4 text-left transition hover:border-indigo-500/40 hover:bg-zinc-50 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:hover:border-indigo-500/50 dark:hover:bg-zinc-800/50 group shadow-xs"
@@ -148,7 +174,7 @@ function Editor() {
                     New Document
                   </p>
                   <p className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Write notes, tasks, code & slash commands
+                    Write notes, tasks & code
                   </p>
                 </div>
               </div>
@@ -167,10 +193,30 @@ function Editor() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-zinc-800 group-hover:text-emerald-600 dark:text-zinc-200 dark:group-hover:text-white">
-                    New Google Spreadsheet
+                    New Spreadsheet
                   </p>
                   <p className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Multi-tabs, formulas, grid calculations
+                    Formulas & multi-tabs
+                  </p>
+                </div>
+              </div>
+              <ArrowRight size={16} className="text-zinc-400 group-hover:text-zinc-600 dark:text-zinc-600 dark:group-hover:text-zinc-300" />
+            </button>
+
+            <button
+              onClick={createBoardPage}
+              className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white p-4 text-left transition hover:border-purple-500/40 hover:bg-zinc-50 dark:border-zinc-800/80 dark:bg-zinc-950/60 dark:hover:border-purple-500/50 dark:hover:bg-zinc-800/50 group shadow-xs"
+            >
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-purple-500/10 p-2 text-purple-600 dark:text-purple-400 group-hover:bg-purple-500/20">
+                  <PenTool size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-zinc-800 group-hover:text-purple-600 dark:text-zinc-200 dark:group-hover:text-white">
+                    New Whiteboard
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-500">
+                    Excalidraw canvas
                   </p>
                 </div>
               </div>
@@ -344,7 +390,7 @@ function Editor() {
           />
         </div>
 
-        {/* Tab switch between Document and Spreadsheet mode */}
+        {/* Tab switch between Document, Spreadsheet, and Whiteboard (Board) mode */}
         <div className="mb-4 flex gap-1 border-b border-zinc-200 pb-2 dark:border-zinc-800">
           <button
             onClick={() => setActiveTabOverride({ pageId: page?.id ?? "", tab: "doc" })}
@@ -367,16 +413,20 @@ function Editor() {
                       id: "sheet-1",
                       title: "Sheet1",
                       data: [
-                        ["", "", "", ""],
-                        ["", "", "", ""],
-                        ["", "", "", ""],
+                        ["", "", "", "", "", ""],
+                        ["", "", "", "", "", ""],
+                        ["", "", "", "", "", ""],
+                        ["", "", "", "", "", ""],
+                        ["", "", "", "", "", ""],
                       ],
                     },
                   ],
                   data: [
-                    ["", "", "", ""],
-                    ["", "", "", ""],
-                    ["", "", "", ""],
+                    ["", "", "", "", "", ""],
+                    ["", "", "", "", "", ""],
+                    ["", "", "", "", "", ""],
+                    ["", "", "", "", "", ""],
+                    ["", "", "", "", "", ""],
                   ],
                 });
                 updateContent(page.id, defaultSpreadsheetContent);
@@ -390,12 +440,33 @@ function Editor() {
           >
             📊 Spreadsheet
           </button>
+          <button
+            onClick={() => {
+              setActiveTabOverride({ pageId: page?.id ?? "", tab: "board" });
+              if (page && !isBoardPage) {
+                const defaultBoardContent = JSON.stringify({
+                  type: "board",
+                  elements: [],
+                });
+                updateContent(page.id, defaultBoardContent);
+              }
+            }}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === "board"
+                ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 font-semibold"
+                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            🎨 Whiteboard
+          </button>
         </div>
 
         {activeTab === "doc" ? (
           <CollaborativeEditor key={page.id} pageId={page.id} />
-        ) : (
+        ) : activeTab === "sheet" ? (
           <CollaborativeSpreadsheetEditor key={page.id} pageId={page.id} />
+        ) : (
+          <BoardEditor key={page.id} pageId={page.id} />
         )}
       </div>
     </div>
