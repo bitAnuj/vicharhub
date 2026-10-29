@@ -6,24 +6,9 @@ import "../../styles/spreadsheet-theme.css";
 import { usePageStore } from "../../store/usePageStore";
 import { useBroadcastEvent, useEventListener } from "../../lib/liveblocks";
 import PresenceAvatars from "./PresenceAvatars";
-import {
-  Bold,
-  Italic,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  Plus,
-  Trash2,
-  Download,
-  Undo2,
-  Redo2,
-  Table,
-  HelpCircle,
-  FileSpreadsheet,
-  X,
-  Edit2,
-  Sigma,
-} from "lucide-react";
+import SpreadsheetToolbar from "./spreadsheet/SpreadsheetToolbar";
+import SpreadsheetSheet from "./spreadsheet/SpreadsheetSheet";
+import { HelpCircle, FileSpreadsheet, X } from "lucide-react";
 
 interface SheetTab {
   id: string;
@@ -303,7 +288,7 @@ export default function SpreadsheetEditor({
       : [["", "", "", "", "", ""]];
 
     const computedTableHeight = embeddedHeight
-      ? `${Math.max(180, embeddedHeight - 120)}px`
+      ? `${Math.max(180, embeddedHeight - 80)}px`
       : "500px";
 
     const worksheetConfig: any = { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -660,118 +645,17 @@ export default function SpreadsheetEditor({
         </div>
       )}
 
-      {/* Main Google Sheets Toolbar */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-3 py-1.5 text-sm select-none">
-        {/* Undo / Redo */}
-        <button
-          onClick={handleUndo}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          title="Undo"
-        >
-          <Undo2 size={16} />
-        </button>
-        <button
-          onClick={handleRedo}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          title="Redo"
-        >
-          <Redo2 size={16} />
-        </button>
-
-        <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
-
-        {/* Text styling */}
-        <button
-          onClick={() => applyStyle("font-weight", "bold")}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 font-bold"
-          title="Bold"
-        >
-          <Bold size={16} />
-        </button>
-        <button
-          onClick={() => applyStyle("font-style", "italic")}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 italic"
-          title="Italic"
-        >
-          <Italic size={16} />
-        </button>
-
-        <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
-
-        {/* Alignments */}
-        <button
-          onClick={() => applyStyle("text-align", "left")}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          title="Align Left"
-        >
-          <AlignLeft size={16} />
-        </button>
-        <button
-          onClick={() => applyStyle("text-align", "center")}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          title="Align Center"
-        >
-          <AlignCenter size={16} />
-        </button>
-        <button
-          onClick={() => applyStyle("text-align", "right")}
-          className="rounded p-1 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          title="Align Right"
-        >
-          <AlignRight size={16} />
-        </button>
-
-        {!isEmbedded && (
-          <>
-            <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              title="Download as CSV"
-            >
-              <Download size={14} />
-              <span>Export CSV</span>
-            </button>
-            <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
-            <button
-              onClick={() => setShowFormulasHelp(!showFormulasHelp)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
-              title="View Supported Formulas"
-            >
-              <Sigma size={14} />
-              <span>Formulas</span>
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Formula Bar (Google Sheets style fx bar) */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-3 py-1 text-xs">
-        {/* Selected cell coordinate */}
-        <div className="flex h-6 w-12 items-center justify-center rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-mono text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">
-          {selectedCellName}
-        </div>
-
-        {/* fx symbol */}
-        <span className="font-serif italic font-bold text-zinc-400 dark:text-zinc-500 select-none text-xs">
-          fx
-        </span>
-
-        {/* Input box */}
-        <input
-          type="text"
-          value={formulaValue}
-          onChange={(e) => setFormulaValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              handleFormulaCommit();
-            }
-          }}
-          onBlur={handleFormulaCommit}
-          placeholder="Enter text, numbers, or formulas (e.g. =SUM(A1:A5))"
-          className="flex-1 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2 py-0.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:border-emerald-500 focus:bg-white focus:outline-none dark:focus:border-emerald-500 dark:focus:bg-zinc-900"
+      {/* Main Google Sheets Toolbar (Separated Component - only in full-page mode) */}
+      {!isEmbedded && (
+        <SpreadsheetToolbar
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onApplyStyle={applyStyle}
+          onExportCSV={handleExportCSV}
+          onToggleFormulasHelp={() => setShowFormulasHelp(!showFormulasHelp)}
+          showFormulasHelp={showFormulasHelp}
         />
-      </div>
+      )}
 
       {/* Formulas Help Panel (full-page mode only) */}
       {!isEmbedded && showFormulasHelp && (
@@ -798,88 +682,24 @@ export default function SpreadsheetEditor({
         </div>
       )}
 
-      {/* Spreadsheet Main Canvas */}
-      <div className="relative flex-1 overflow-auto bg-zinc-100/50 dark:bg-zinc-950 p-1.5">
-        <div ref={sheetContainerRef} className="spreadsheet-container w-full" />
-      </div>
-
-      {/* Bottom Row: Tab Bar */}
-      <div className="flex flex-wrap items-center justify-between border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-3 py-1 text-xs">
-        {/* Left: Sheet tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto">
-          {sheetsList.map((sheet, index) => {
-            const isActive = index === activeSheetIndex;
-            return (
-              <div
-                key={sheet.id || index}
-                onClick={() => handleSwitchTab(index)}
-                className={`group flex items-center gap-1.5 rounded-t border px-2.5 py-0.5 cursor-pointer transition-colors ${
-                  isActive
-                    ? "border-zinc-300 border-b-transparent bg-white text-zinc-900 font-semibold dark:border-zinc-700 dark:border-b-transparent dark:bg-zinc-950 dark:text-zinc-100"
-                    : "border-transparent bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900 dark:bg-zinc-800/60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                }`}
-              >
-                <Table size={12} className={isActive ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"} />
-                <span>{sheet.title}</span>
-
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRenameTab(index);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 ml-0.5"
-                  title="Rename sheet"
-                >
-                  <Edit2 size={11} />
-                </button>
-
-                {sheetsList.length > 1 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteTab(index);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-500 ml-0.5"
-                    title="Delete sheet"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          <button
-            onClick={handleAddTab}
-            className="flex items-center justify-center rounded p-0.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 ml-1"
-            title="Add sheet"
-          >
-            <Plus size={15} />
-          </button>
-        </div>
-
-        {/* Right: Quick row adder (full-page mode only) */}
-        {!isEmbedded && (
-          <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-            <span>Add</span>
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              value={rowsToAdd}
-              onChange={(e) => setRowsToAdd(Number(e.target.value))}
-              className="w-14 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-1.5 py-0.5 text-center text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-indigo-500"
-            />
-            <span>more rows</span>
-            <button
-              onClick={handleAddRows}
-              className="rounded bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 px-2 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200 transition-colors"
-            >
-              Add
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Reusable Spreadsheet Sheet (Grid canvas, formula bar & tabs) */}
+      <SpreadsheetSheet
+        containerRef={sheetContainerRef}
+        selectedCellName={selectedCellName}
+        formulaValue={formulaValue}
+        onChangeFormula={setFormulaValue}
+        onCommitFormula={handleFormulaCommit}
+        sheetsList={sheetsList}
+        activeSheetIndex={activeSheetIndex}
+        onSwitchTab={handleSwitchTab}
+        onAddTab={handleAddTab}
+        onRenameTab={handleRenameTab}
+        onDeleteTab={handleDeleteTab}
+        rowsToAdd={rowsToAdd}
+        onChangeRowsToAdd={setRowsToAdd}
+        onAddRows={handleAddRows}
+        isEmbedded={isEmbedded}
+      />
     </div>
   );
 }
