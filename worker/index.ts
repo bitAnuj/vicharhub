@@ -90,6 +90,16 @@ function b64ToBytes(b64: string): Uint8Array {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
+function generateShortToken(length = 10): string {
+  const chars = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  let token = "";
+  for (let i = 0; i < length; i++) {
+    token += chars[bytes[i] % chars.length];
+  }
+  return token;
+}
+
 // ---------- Password hashing (PBKDF2-SHA256, no dependencies) ----------
 const PBKDF2_ITERATIONS = 100_000;
 
@@ -368,7 +378,7 @@ export default {
       if (m && request.method === "DELETE") return removeMember(env.DB, user!.id, m[1], m[2]);
 
       m = path.match(/^\/api\/vaults\/([^/]+)\/invites$/);
-      if (m && request.method === "GET") return listInvites(env.DB, user!.id, m[1]);
+      if (m && request.method === "GET") return listInvites(request, env.DB, user!.id, m[1]);
       if (m && request.method === "POST") return createInviteHandler(request, env, user!.id, m[1]);
 
       m = path.match(/^\/api\/vaults\/([^/]+)\/invites\/([^/]+)$/);
@@ -378,7 +388,12 @@ export default {
         return acceptInviteHandler(request, env.DB, user!.id);
 
       // ----- Static site -----
-      return env.ASSETS.fetch(request);
+      const assetRes = await env.ASSETS.fetch(request);
+      if (assetRes.status === 404 && request.method === "GET" && !path.startsWith("/api/")) {
+        const indexUrl = new URL("/", request.url);
+        return env.ASSETS.fetch(new Request(indexUrl.toString(), request));
+      }
+      return assetRes;
     } catch (e) {
       console.error(e);
       return err("Internal server error", 500);
@@ -862,16 +877,27 @@ async function removeMember(
 }
 
 // ---------- Vault Invites ----------
-async function listInvites(db: D1Database, userId: string, vaultId: string): Promise<Response> {
+async function listInvites(request: Request, db: D1Database, userId: string, vaultId: string): Promise<Response> {
   if (!(await ownsVault(db, vaultId, userId))) return err("Vault not found", 404);
+  const origin = new URL(request.url).origin;
   const res = await db
     .prepare(
-      `SELECT id, email, role, status, expires_at AS expiresAt, created_at AS createdAt
+      `SELECT id, email, role, status, token_hash, expires_at AS expiresAt, created_at AS createdAt
        FROM vault_invites WHERE vault_id = ? AND status = 'pending' ORDER BY created_at DESC`
     )
     .bind(vaultId)
     .all<Row>();
-  return json({ invites: res.results ?? [] });
+  const invites = (res.results ?? []).map((row: any) => ({
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+    token: row.token_hash,
+    inviteUrl: `${origin}/join/${row.token_hash}`,
+  }));
+  return json({ invites });
 }
 
 async function createInviteHandler(
@@ -884,11 +910,7 @@ async function createInviteHandler(
   const role = body.role ?? "member";
   if (!["admin", "member", "viewer"].includes(role)) return err("Invalid role", 400);
 
-  const tokenBytes = crypto.getRandomValues(new Uint8Array(24));
-  const token = bytesToB64(tokenBytes).replace(/[+/=]/g, (c) =>
-    c === "+" ? "-" : c === "/" ? "_" : ""
-  );
-  const tokenHash = await sha256Hex(token);
+  const token = generateShortToken(10);
   const id = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 7 * 86400;
@@ -898,11 +920,11 @@ async function createInviteHandler(
       `INSERT INTO vault_invites (id, vault_id, inviter_id, email, role, token_hash, status, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
     )
-    .bind(id, vaultId, userId, email, role, tokenHash, expiresAt, now)
+    .bind(id, vaultId, userId, email, role, token, expiresAt, now)
     .run();
 
   const origin = new URL(request.url).origin;
-  const inviteUrl = `${origin}/?invite=${encodeURIComponent(token)}`;
+  const inviteUrl = `${origin}/join/${token}`;
 
   const inviter = await env.DB
     .prepare("SELECT name, email FROM users WHERE id = ?")
@@ -939,7 +961,11 @@ async function createInviteHandler(
               <a href="${inviteUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 28px; background: #4f46e5; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
                 Accept Invitation
               </a>
-              <p style="color: #a1a1aa; font-size: 13px; margin-top: 32px;">This invite expires in 7 days. If you didn't expect this, you can safely ignore it.</p>
+              <p style="color: #71717a; font-size: 13px; margin-top: 16px;">
+                Or open this link directly in your browser:<br/>
+                <code style="color: #4f46e5; font-size: 13px; word-break: break-all;">${inviteUrl}</code>
+              </p>
+              <p style="color: #a1a1aa; font-size: 12px; margin-top: 32px;">This invite expires in 7 days. If you didn't expect this, you can safely ignore it.</p>
             </div>
           `,
         }),
@@ -969,7 +995,7 @@ async function acceptInviteHandler(
   request: Request, db: D1Database, userId: string
 ): Promise<Response> {
   const body = (await request.json().catch(() => ({}))) as { token?: string };
-  const token = body.token ?? "";
+  const token = (body.token ?? "").trim();
   if (!token) return err("Invite token is required", 400);
 
   const tokenHash = await sha256Hex(token);
@@ -977,9 +1003,9 @@ async function acceptInviteHandler(
   const invite = await db
     .prepare(
       `SELECT id, vault_id, role, status FROM vault_invites
-       WHERE token_hash = ? AND expires_at > ?`
+       WHERE (token_hash = ? OR token_hash = ?) AND expires_at > ?`
     )
-    .bind(tokenHash, now)
+    .bind(token, tokenHash, now)
     .first<{ id: string; vault_id: string; role: string; status: string }>();
 
   if (!invite) return err("Invalid or expired invite", 404);

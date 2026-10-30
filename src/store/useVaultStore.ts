@@ -198,14 +198,14 @@ export const useVaultStore = create<VaultStore>()(
       },
 
       createInvite: async (vaultId, email, role) => {
-        const token = Math.random().toString(36).substring(2, 14);
+        const token = Math.random().toString(36).substring(2, 12);
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         const mockInvite: VaultInvite = {
           id: `inv-${Date.now()}`,
           email,
           role,
           token,
-          inviteUrl: `${origin}/invite/${token}`,
+          inviteUrl: `${origin}/join/${token}`,
           expiresAt: Math.floor(Date.now() / 1000) + 7 * 86400,
           createdAt: Math.floor(Date.now() / 1000),
         };
