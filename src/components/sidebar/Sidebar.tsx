@@ -1,6 +1,8 @@
 import { Home, Plus, Star, Trash2, X, PenTool } from "lucide-react";
 
 import { usePageStore } from "../../store/usePageStore";
+import useVaultStore from "../../store/useVaultStore";
+import { toast } from "sonner";
 import { useUIStore } from "../../store/useUIStore";
 import PageTreeItem from "./PageTreeItem";
 import TrashPanel from "./TrashPanel";
@@ -10,6 +12,8 @@ import { useNewPageShortcut } from "../../hooks/useHotkeys";
 function Sidebar() {
   const { pages, addPage, selectPage } = usePageStore();
   const { setTrashOpen, sidebarOpen, setSidebarOpen } = useUIStore();
+  const { vaults, currentVaultId, deleteVault } = useVaultStore();
+  const currentVault = vaults.find((v) => v.id === currentVaultId);
 
   // Register 'N' hotkey to create a new page when not typing
   useNewPageShortcut(() => {
@@ -67,6 +71,43 @@ function Sidebar() {
             <X size={18} />
           </button>
         </div>
+
+        {/* Vault Section */}
+        {currentVault && (
+          <div className="border-b border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 truncate">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-indigo-500/10 text-xs font-bold text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">
+                  {currentVault.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="truncate">
+                  <p className="truncate text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                    {currentVault.name}
+                  </p>
+                  <span className="text-[10px] text-zinc-400 uppercase font-mono">
+                    {currentVault.role || "owner"}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Are you sure you want to delete vault "${currentVault.name}"?\nAll documents in this vault will be permanently deleted.`
+                    )
+                  ) {
+                    deleteVault(currentVault.id);
+                    toast.success(`Vault "${currentVault.name}" deleted`);
+                  }
+                }}
+                className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-colors"
+                title={`Delete vault "${currentVault.name}"`}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-0.5 p-2">
           <button

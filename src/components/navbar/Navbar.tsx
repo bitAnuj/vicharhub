@@ -11,7 +11,9 @@ import {
   Sun,
   Link2,
   UserPlus,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useUIStore } from "../../store/useUIStore";
 import { usePageStore } from "../../store/usePageStore";
 import useVaultStore from "../../store/useVaultStore";
@@ -23,7 +25,7 @@ function Navbar() {
   const { setSidebarOpen, setCommandOpen, setSettingsOpen, theme, toggleTheme } =
     useUIStore();
   const { pages, selectedPageId } = usePageStore();
-  const { vaults, currentVaultId, openVault, createVault } = useVaultStore();
+  const { vaults, currentVaultId, openVault, createVault, deleteVault } = useVaultStore();
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -31,6 +33,20 @@ function Navbar() {
   const currentPage = pages.find((p) => p.id === selectedPageId);
   const currentVault = vaults.find((v) => v.id === currentVaultId);
   const { user, logout } = useAuthStore();
+
+  function handleDeleteVault(v: { id: string; name: string }) {
+    if (
+      confirm(
+        `Are you sure you want to delete vault "${v.name}"?\nAll pages and documents in this vault will be permanently deleted.`
+      )
+    ) {
+      deleteVault(v.id);
+      toast.success(`Vault "${v.name}" deleted`);
+      if (v.id === currentVaultId) {
+        setVaultMenuOpen(false);
+      }
+    }
+  }
 
   return (
     <>
@@ -71,7 +87,7 @@ function Navbar() {
                   {vaults.map((v) => (
                     <div
                       key={v.id}
-                      className="group flex items-center rounded-md px-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      className="group flex items-center justify-between rounded-md px-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <button
                         onClick={() => {
@@ -91,6 +107,16 @@ function Navbar() {
                         {v.id === currentVaultId && (
                           <Check size={14} className="text-indigo-600 dark:text-zinc-400" />
                         )}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteVault(v);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-opacity"
+                        title={`Delete vault "${v.name}"`}
+                      >
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   ))}
@@ -120,6 +146,15 @@ function Navbar() {
                   >
                     <Plus size={14} /> New vault
                   </button>
+                  {currentVault && (
+                    <button
+                      onClick={() => handleDeleteVault(currentVault)}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30 transition-colors"
+                      title="Delete this vault"
+                    >
+                      <Trash2 size={14} /> Delete current vault
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -151,11 +186,11 @@ function Navbar() {
           </button>
           {currentPage && (
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  `${window.location.origin}?page=${currentPage.id}`
-                );
+              onClick={async () => {
+                const url = `${window.location.origin}/p/${currentPage.id}`;
+                await navigator.clipboard.writeText(url);
                 setCopied(true);
+                toast.success("Page link copied to clipboard!");
                 setTimeout(() => setCopied(false), 1500);
               }}
               className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"

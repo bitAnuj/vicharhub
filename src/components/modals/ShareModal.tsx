@@ -78,7 +78,8 @@ export default function ShareModal({ vaultId, isOpen, onClose }: ShareModalProps
       const invite = await createInvite(vaultId, inviteEmail.trim(), inviteRole);
       setInviteEmail("");
       toast.success(`Invitation created for ${invite.email}!`);
-      await navigator.clipboard.writeText(invite.inviteUrl);
+      const linkToCopy = invite.inviteUrl || (typeof window !== "undefined" ? `${window.location.origin}/join/${invite.token || invite.id}` : "");
+                          await navigator.clipboard.writeText(linkToCopy);
       toast.info("Invite link copied to clipboard & email dispatched if Resend API key configured.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create invite";
@@ -90,7 +91,7 @@ export default function ShareModal({ vaultId, isOpen, onClose }: ShareModalProps
 
   async function handleCopyWorkspaceLink() {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const url = `${origin}/?vault=${encodeURIComponent(vaultId)}`;
+    const url = `${origin}/v/${vaultId}`;
     await navigator.clipboard.writeText(url);
     setCopiedLink(true);
     toast.success("Workspace link copied to clipboard!");

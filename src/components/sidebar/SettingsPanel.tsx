@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -264,19 +265,18 @@ export default function SettingsPanel() {
                               Switch
                             </button>
                           )}
-                          {vaults.length > 1 && (
-                            <button
-                              onClick={() => {
-                                if (confirm(`Delete vault "${v.name}" and all its pages permanently?`)) {
-                                  deleteVault(v.id);
-                                }
-                              }}
-                              className="rounded p-1 text-zinc-400 hover:text-red-500 hover:bg-zinc-200 dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-zinc-700"
-                              title="Delete vault"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete vault "${v.name}" and all its pages permanently?`)) {
+                                deleteVault(v.id);
+                                toast.success(`Vault "${v.name}" deleted`);
+                              }
+                            }}
+                            className="rounded p-1 text-zinc-400 hover:text-red-500 hover:bg-zinc-200 dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-zinc-700 transition-colors"
+                            title="Delete vault"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       </div>
                     ))}
